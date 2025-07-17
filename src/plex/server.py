@@ -8,6 +8,7 @@ to handle non-blocking I/O and to provide informative error messages.
 """
 import argparse
 import asyncio
+from calendar import c
 from enum import StrEnum
 import logging
 
@@ -15,6 +16,7 @@ import os
 from dataclasses import dataclass
 
 # --- Import Statements ---
+from re import U
 from typing import Annotated, Any, Dict, List, Optional, Callable
 from base import run_server, mcp
 from starlette.requests import Request
@@ -1070,10 +1072,10 @@ async def get_active_clients(
     ),
 )
 async def play_media_on_client(
-    machine_identifier: Annotated[
+    machine_identifier_or_client_name: Annotated[
         str,
         Field(
-            description="The machine identifier of the Plex client find this by calling the get_client_machine_identifier tool.",
+            description="Either the machine identifier or the name of the of the Plex client. Find this by calling the get_client_machine_identifier tool.",
             examples=["abcd1234efgh5678ijkl9012mnop3456qrst7890uvwx"],
         ),
     ],
@@ -1104,7 +1106,10 @@ async def play_media_on_client(
         if not clients:
             return "No active clients connected to your Plex server."
         logger.info("Found %d active clients.", len(clients))
-        client = match_client_name(machine_identifier, clients, filter=lambda c: "playback" in c.protocolCapabilities)
+        if len([c for c in clients if c.machineIdentifier == machine_identifier_or_client_name or c.title == machine_identifier_or_client_name]) > 0:
+            client = [c for c in clients if c.machineIdentifier == machine_identifier_or_client_name or c.title == machine_identifier_or_client_name][0]
+        else:
+            client = match_client_name(machine_identifier_or_client_name, clients, filter=lambda c: "playback" in c.protocolCapabilities)
         if not client:
             return f"No client found with machine identifier {machine_identifier}."
         if "playback" not in client.protocolCapabilities:
