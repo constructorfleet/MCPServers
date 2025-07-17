@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-kagi"
+version = "0.2.0"
+description = "Kagi-specific automation"
+requires-python = ">=3.11,<4"
+dependencies = [
+  "kagiapi>=0.2.1",
+  "mcp_base @ file://${PROJECT_ROOT}/base",
+]
+
+[project.scripts]
+mcp-kagi = "kagi.server:main"
+
+[tool.setuptools]
+package-dir = { "" = "../src" }
+
+[tool.setuptools.packages.find]
+where = ["../src"]
+include = ["kagi"]
