@@ -40,6 +40,8 @@ def match_client_name(requested_client: str, candidates: list[PlexAPIClient], fi
     """
     Try to match the requested client to a candidate
     """
+    if not requested_client or not candidates or not filter:
+        return None
     candidate_map = {c.title: c for c in candidates if filter(c)}
     choice, score, _ = process.extractOne(requested_client, list(candidate_map.keys()), score_cutoff=60)
     return candidate_map.get(choice, None) if score >= 60 else None
