@@ -1835,20 +1835,19 @@ async def refresh_cache():
 
         if plex is None:
             raise ValueError("PlexClient instance is not initialized.")
-        for section_items in await asyncio.gather(
-            *[
-                await asyncio.to_thread(section.all)
+        for section_items in [
+                section.all()
                 for section
                 in await plex.library.sections()
-            ]):
-                for item in section_items.all():
-                    reviews = None
-                    if item and hasattr(item, "reviews"):
-                        reviews = await asyncio.to_thread(lambda i=item: i.reviews())
-                    if not reviews:
-                        reviews = []
+        ]:
+            for item in section_items.all():
+                reviews = None
+                if item and hasattr(item, "reviews"):
+                    reviews = await asyncio.to_thread(lambda i=item: i.reviews())
+                if not reviews:
+                    reviews = []
 
-                    cache[item.ratingKey] = reviews
+                cache[item.ratingKey] = reviews
         global media_cache
         media_cache = cache
         logger.info("Plex cache refreshed successfully.")
