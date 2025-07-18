@@ -50,7 +50,7 @@ def kagi_search_fetch(
             repr(kagi_client.session.headers),
         )
         with ThreadPoolExecutor() as executor:
-            results = list(executor.map(kagi_client.enrich, query, timeout=10))
+            results = list(executor.map(kagi_client.enrich, [query], timeout=10))
         if not results or any("error" in result for result in results) or len(results) != 1:
             logger.error("Search failed or returned no results: %s", results)
             raise ValueError("Search failed or returned no results")
