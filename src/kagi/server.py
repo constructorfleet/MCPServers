@@ -36,6 +36,7 @@ def kagi_search_fetch(
         return results
 
     except Exception as e:
+        logger.exception("Error in kagi_search_fetch: %s", e)
         return f"Error: {str(e) or repr(e)}"
 
 
