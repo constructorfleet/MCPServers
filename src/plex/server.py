@@ -2173,7 +2173,7 @@ def on_run_server(args):
             global media_cache
             media_cache = from_json(f.read())
     logger.info("Loaded Plex cache with %d items.", len(media_cache))
-    asyncio.create_task(refresh_cache(True))
+    asyncio.run_coroutine_threadsafe(refresh_cache(True), asyncio.get_event_loop())
     asyncio.run(run_periodically(60.0 * 60.0))
 
 async def refresh_cache(new_only: bool = False):
