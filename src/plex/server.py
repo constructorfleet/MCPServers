@@ -8,6 +8,7 @@ to handle non-blocking I/O and to provide informative error messages.
 """
 import argparse
 import asyncio
+import json
 from calendar import c
 from enum import StrEnum
 import logging
@@ -16,7 +17,6 @@ import os
 from dataclasses import dataclass
 
 # --- Import Statements ---
-from re import U
 from typing import Annotated, Any, Dict, List, Optional, Callable
 from base import run_server, mcp
 from starlette.requests import Request
@@ -28,11 +28,28 @@ from plexapi.library import MovieSection, ShowSection
 from plexapi.client import PlexClient as PlexAPIClient
 from plexapi.server import PlexServer
 from plexapi.video import Movie, Show, Season, Episode
+from plexapi.utils import toJson
 from pydantic import Field
 from rapidfuzz import process
+try:
+    import http.client as http_client
+except ImportError:
+    # Python 2
+    import httplib as http_client
+http_client.HTTPConnection.debuglevel = 1
+
+# You must initialize logging, otherwise you'll not see debug output.
+logging.basicConfig(
+    level=logging.DEBUG,  # Use DEBUG for more verbosity during development
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+requests_log = logging.getLogger("requests.packages.urllib3")
+requests_log.setLevel(logging.DEBUG)
+requests_log.propagate = True
 
 # --- Logging Setup ---
 logger = logging.getLogger(__name__)
+
 
 # --- Utility Formatting Functions ---
 def default_filter(client: PlexAPIClient) -> bool:
@@ -125,6 +142,8 @@ def format_session(session: PlexAPISession) -> str:
     Returns:
         A formatted string containing session details.
     """
+    source = session.source()
+    logger.error(json.dumps(toJson(source), indent=2))
     return (
         f"User: {session.user.username}"
         f"{format_movie(session.source) if 'grandFatherTitle' not in session.source() else format_episode(session.source)}"
