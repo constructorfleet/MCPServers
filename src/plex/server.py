@@ -462,7 +462,7 @@ async def search_media(
     limit: Annotated[
         Optional[int],
         Field(
-            description="The number of items to return, if not specified, all items are returned",
+            description="Optionally limit the number of items returned.",
             default=None,
             examples=[None,1,10,5],
         )
@@ -598,7 +598,7 @@ async def search_movies(
     limit: Annotated[
         Optional[int],
         Field(
-            description="The number of items to return, if not specified, all items are returned",
+            description="Optionally limit the number of items returned.",
             default=None,
             examples=[None,1, 5, 10],
         )
@@ -876,7 +876,7 @@ async def search_shows(
     limit: Annotated[
         Optional[int],
         Field(
-            description="The number of items to return, if not specified, all items are returned",
+            description="Optionally limit the number of items returned.",
             default=None,
             examples=[None, 1, 5, 10],
         )
