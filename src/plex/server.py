@@ -8,8 +8,9 @@ to handle non-blocking I/O and to provide informative error messages.
 """
 import argparse
 import asyncio
+import datetime
+import itertools
 import json
-from calendar import c
 from enum import StrEnum
 import logging
 
@@ -17,21 +18,23 @@ import os
 from dataclasses import dataclass
 
 # --- Import Statements ---
-import re
 from typing import Annotated, Any, Dict, List, Optional, Callable
 from base import run_server, mcp
 from starlette.requests import Request
 from starlette.responses import Response
 from mcp.types import ToolAnnotations
+from plex.utils import from_json, initialize_pickle, to_json
 from plexapi.base import PlexSession as PlexAPISession
 from plexapi.exceptions import NotFound, Unauthorized
 from plexapi.library import MovieSection, ShowSection
 from plexapi.client import PlexClient as PlexAPIClient
 from plexapi.server import PlexServer
-from plexapi.video import Movie, Show, Season, Episode
+from plexapi.video import Movie, Episode
 from plexapi.utils import toJson
 from pydantic import Field
 from rapidfuzz import process
+from rapidfuzz.fuzz import token_set_ratio
+import aiofiles
 try:
     import http.client as http_client
 except ImportError:
@@ -50,14 +53,36 @@ requests_log.propagate = True
 
 # --- Logging Setup ---
 logger = logging.getLogger(__name__)
-media_cache = {}
+media_cache: dict[str, dict] = {}
 
+def recursive_get(s, key):
+    if "." in key:
+        first, rest = key.split(".", 1)
+        return recursive_get(s.get(first, {}), rest)
+    else:
+        return s.get(key, None)
 
-def cache_result(key: str, value: Any) -> None:
+def object_similarity_score(obj, filter_dict):
+    score = 0
+    for key, value in filter_dict.items():
+        obj_value = recursive_get(obj, key)
+        if obj_value is None:
+            continue
+        score += token_set_ratio(str(obj_value), str(value))
+    return score
+
+def sort_plex_objects_by_similarity(objects, filter_dict):
+    return sorted(
+        objects,
+        key=lambda obj: object_similarity_score(obj, filter_dict),
+        reverse=True
+    )
+
+def cache_result(key: str, value: dict) -> None:
     media_cache[key] = value
 
 
-def get_cached_result(key: str) -> Optional[Any]:
+def get_cached_result(key: str) -> Optional[dict]:
     return media_cache.get(key, None)
 
 # --- Utility Formatting Functions ---
@@ -517,7 +542,7 @@ async def search_media(
         results.append(f"\n... and {len(media)-limit} more results.")
     logger.info("Returning %s.", "\n---\n".join(results))
     return "\n---\n".join(results)
-    
+
 
 @mcp.tool(
     name="search_movies",
@@ -1796,6 +1821,323 @@ async def get_movie_genres(
         logger.exception("Failed to fetch genres for movie with key '%s'", movie_key)
         return f"ERROR: Failed to fetch movie genres. {str(e)}"
 
+@mcp.tool(
+    name="get_movie_recommendations",
+    description="Get movie recommendations.",
+    annotations=ToolAnnotations(
+        title="Get Movie Recommendations",
+    ),
+)
+async def get_movie_recommendations(
+    title: Annotated[
+        Optional[str],
+        Field(
+            description="Title or substring to match",
+            examples=["Inception", "Terminator", "Star Wars"],
+            default=None,
+        ),
+    ] = None,
+    year: Annotated[
+        Optional[int],
+        Field(
+            description="Release year to filter by",
+            default=None,
+            examples=[1994, 2020, 1985],
+        ),
+    ] = None,
+    director: Annotated[
+        Optional[str],
+        Field(
+            description="Director name to filter by",
+            default=None,
+            examples=["Christopher Nolan", "James Cameron", "George Lucas"],
+        ),
+    ] = None,
+    studio: Annotated[
+        Optional[str],
+        Field(
+            description="Studio name to filter by",
+            default=None,
+            examples=["Warner Bros.", "20th Century Fox", "Universal Pictures"],
+        ),
+    ] = None,
+    genre: Annotated[
+        Optional[str],
+        Field(
+            description="Genre tag to filter by",
+            default=None,
+            examples=["Action", "Sci-Fi", "Drama"],
+        ),
+    ] = None,
+    actor: Annotated[
+        Optional[str],
+        Field(
+            description="Actor name to filter by",
+            default=None,
+            examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
+        ),
+    ] = None,
+    rating: Annotated[
+        Optional[str],
+        Field(
+            description="Rating to filter by (e.g., 'PG-13', 'R')",
+            default=None,
+            examples=["PG-13", "R", "G"],
+        ),
+    ] = None,
+    country: Annotated[
+        Optional[str],
+        Field(
+            description="Country of origin to filter by",
+            default=None,
+            examples=["USA", "UK", "France"],
+        ),
+    ] = None,
+    language: Annotated[
+        Optional[str],
+        Field(
+            description="Audio or subtitle language to filter by",
+            default=None,
+            examples=["English", "Spanish", "French"],
+        ),
+    ] = None,
+    watched: Annotated[
+        Optional[bool],
+        Field(
+            description="Filter by watched status; True for watched, False for unwatched",
+            default=None,
+            examples=[True, False],
+        ),
+    ] = None,
+    similar_movie_key: Annotated[
+        Optional[str],
+        Field(
+            description="The key of the movie to retrieve recommendations for.",
+            default=None,
+            examples=["12345", "67890"],
+        ),
+    ] = None,
+) -> str:
+    """
+    Get recommendations for movies based on various filters.
+
+    Parameters:
+        similar_movie_key (str): The key of the movie to retrieve similar movies for.
+        title (str): Title or substring to match.
+        year (int): Release year to filter by.
+        director (str): Director name to filter by.
+        studio (str): Studio name to filter by.
+        genre (str): Genre tag to filter by.
+        actor (str): Actor name to filter by.
+        rating (str): Rating to filter by (e.g., 'PG-13', 'R').
+        country (str): Country of origin to filter by.
+        language (str): Audio or subtitle language to filter by.
+        watched (bool): Filter by watched status; True for watched, False for unwatched.
+
+    Returns:
+        A list of movie keys and titles that match the given filters sorted by relevance, or an error message.
+    """
+    movies = [m for m in media_cache.values() if m.get("type") == "movie"]
+    filter = media_cache.get(similar_movie_key or "", {})
+    for key, value in {
+        "year": year,
+        "director": director,
+        "studio": studio,
+        "genre": genre,
+        "actor": actor,
+        "rating": rating,
+        "country": country,
+        "language": language,
+        "watched": watched,
+        "title": title,
+    }.items():
+        if value is not None:
+            filter[key] = value
+    return "\n".join([
+        f"{m['ratingKey']}: {m['title']}"
+        for m
+        in sort_plex_objects_by_similarity(movies, filter)][:50]
+    ) or "No recommendations found."
+
+@mcp.tool(
+    name="get_show_recommendations",
+    description="Get tv show recommendations.",
+    annotations=ToolAnnotations(
+        title="Get Show Recommendations",
+    ),
+)
+async def get_show_recommendations(
+    show_title: Annotated[
+        Optional[str],
+        Field(
+            description="Title or substring of the show to match",
+            examples=["Family Guy", "South Park", "3 body problem"],
+            default=None,
+        ),
+    ] = None,
+    show_year: Annotated[
+        Optional[int],
+        Field(
+            description="Show release year to filter by",
+            default=None,
+            examples=[1994, 2020, 1985],
+        ),
+    ] = None,
+    director: Annotated[
+        Optional[str],
+        Field(
+            description="Director name to filter by",
+            default=None,
+            examples=["Christopher Nolan", "James Cameron", "George Lucas"],
+        ),
+    ] = None,
+    studio: Annotated[
+        Optional[str],
+        Field(
+            description="Studio name to filter by",
+            default=None,
+            examples=["Warner Bros.", "20th Century Fox", "Universal Pictures"],
+        ),
+    ] = None,
+    genre: Annotated[
+        Optional[str],
+        Field(
+            description="Genre tag to filter by",
+            default=None,
+            examples=["Action", "Sci-Fi", "Drama"],
+        ),
+    ] = None,
+    actor: Annotated[
+        Optional[str],
+        Field(
+            description="Actor name to filter by",
+            default=None,
+            examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
+        ),
+    ] = None,
+    rating: Annotated[
+        Optional[str],
+        Field(
+            description="Rating to filter by (e.g., 'PG-13', 'R')",
+            default=None,
+            examples=["PG-13", "R", "G"],
+        ),
+    ] = None,
+    country: Annotated[
+        Optional[str],
+        Field(
+            description="Country of origin to filter by",
+            default=None,
+            examples=["USA", "UK", "France"],
+        ),
+    ] = None,
+    language: Annotated[
+        Optional[str],
+        Field(
+            description="Audio or subtitle language to filter by",
+            default=None,
+            examples=["English", "Spanish", "French"],
+        ),
+    ] = None,
+    watched: Annotated[
+        Optional[bool],
+        Field(
+            description="Filter by watched status; True for watched, False for unwatched",
+            default=None,
+            examples=[True, False],
+        ),
+    ] = None,
+    season: Annotated[
+        Optional[int],
+        Field(
+            description="Season number to filter by",
+            default=None,
+            examples=[1, 2, 3],
+        ),
+    ] = None,
+    episode: Annotated[
+        Optional[int],
+        Field(
+            description="Episode number to filter by",
+            default=None,
+            examples=[1, 2, 3],
+        ),
+    ] = None,
+    episode_title: Annotated[
+        Optional[str],
+        Field(
+            description="Episode title or substring to match",
+            default=None,
+            examples=["Pilot", "The End"],
+        ),
+    ] = None,
+    episode_year: Annotated[
+        Optional[int],
+        Field(
+            description="Episode release year to filter by",
+            default=None,
+            examples=[2020, 2021, 2022],
+        ),
+    ] = None,
+    similar_show_key: Annotated[
+        Optional[str],
+        Field(
+            description="The key of the show or episode to retrieve recommendations for.",
+            default=None,
+            examples=["12345", "67890"],
+        ),
+    ] = None,
+) -> str:
+    """
+    Get recommendations for show based on various filters.
+
+    Parameters:
+        similar_show_key (Optional[str]): The key of the show or episode to retrieve recommendations for.
+        episode_title (Optional[str]): Episode title or substring to match.
+        episode_year (Optional[int]): Episode release year to filter by.
+        show_title (Optional[str]): Title or substring of the show to match.
+        show_year (Optional[int]): Show release year to filter by.
+        director (Optional[str]): Director name to filter by.
+        studio (Optional[str]): Studio name to filter by.
+        genre (Optional[str]): Genre tag to filter by.
+        actor (Optional[str]): Actor name to filter by.
+        rating (Optional[str]): Rating to filter by (e.g., 'PG-13', 'R').
+        country (Optional[str]): Country of origin to filter by.
+        language (Optional[str]): Language to filter by.
+        watched (Optional[bool]): Filter by watched status.
+        title (Optional[str]): Title or substring to match.
+        season (Optional[int]): Season number to filter by.
+        episode (Optional[int]): Episode number to filter by.
+
+    Returns:
+        A list of movie keys and titles that match the given filters sorted by relevance, or an error message.
+    """
+    episodes = [m for m in media_cache.values() if m.get("type") == "episode"]
+    filter = media_cache.get(similar_show_key or "", {})
+
+    for key, value in {
+        "show.title": show_title,
+        "show.year": show_year,
+        "season.index": season,
+        "index": episode,
+        "title": episode_title,
+        "director": director,
+        "studio": studio,
+        "genre": genre,
+        "actor": actor,
+        "rating": rating,
+        "country": country,
+        "language": language,
+        "watched": watched,
+        "year": episode_year,
+    }.items():
+        if value is  None:
+            filter[key] = value
+    return "\n".join([
+        f"{m['ratingKey']}: {m['title']}"
+        for m
+        in sort_plex_objects_by_similarity(episodes, filter)][:50]
+    ) or "No recommendations found."
 
 def add_plex_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
@@ -1811,7 +2153,7 @@ def add_plex_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
     return parser
 
-def validate_args(args):
+def on_run_server(args):
     if not os.environ.get("PLEX_SERVER_URL"):
         if not args.plex_url:
             raise ValueError("Plex server URL must be provided via --plex-url or PLEX_SERVER_URL environment variable.")
@@ -1820,39 +2162,121 @@ def validate_args(args):
         if not args.plex_token:
             raise ValueError("Plex token must be provided via --plex-token or PLEX_TOKEN environment variable.")
         os.environ["PLEX_TOKEN"] = args.plex_token
-
+    initialize_pickle(os.environ["PLEX_SERVER_URL"])
     PlexClient(
         os.environ["PLEX_SERVER_URL"], os.environ["PLEX_TOKEN"]
     )  # Initialize singleton
     asyncio.run(get_plex_server())
-    asyncio.run(run_periodically(10.0 * 60.0))
+    if os.path.exists(os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json")):
+        logger.info("Loading Plex cache from disk...")
+        with open(os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json"), "r") as f:
+            global media_cache
+            media_cache = from_json(f.read())
+    logger.info("Loaded Plex cache with %d items.", len(media_cache))
+    asyncio.run(run_periodically(20.0 * 60.0))
 
 async def refresh_cache():
     logger.info("Refreshing Plex cache...")
-    cache = {}
+    async def get_all_items(sections, libtype) -> dict[str, Any]:
+        return {
+            m.ratingKey: m
+            for m
+            in list(itertools.chain(*await asyncio.gather(*[
+                asyncio.to_thread(section.all, libtype=libtype)
+                for section
+                in sections
+        ])))}
+
+    def build_cache(item, seasons, shows) -> Optional[dict[str, Any]]:
+        if not item or not hasattr(item, "ratingKey"):
+            return None
+        item_dict = item.__dict__
+        item_dict["reviews"] = (
+            [
+                r
+                for r
+                in item.reviews()
+            ] if hasattr(item, "reviews") else []
+        )
+        item_dict["actors"] = (
+            [
+                a
+                for a
+                in item.actors
+            ] if hasattr(item, "actors") else []
+        )
+        item_dict["directors"] = (
+            [
+                a
+                for a
+                in item.directors
+            ] if hasattr(item, "directors") else []
+        )
+        item_dict["writers"] = (
+            [
+                a
+                for a
+                in item.writers
+            ] if hasattr(item, "writers") else []
+        )
+        item_dict["genres"] = (
+            [a for a in item.genres]
+            if hasattr(item, "genres")
+            else []
+        )
+        if hasattr(item, "parentRatingKey") and item.parentRatingKey:
+            season = seasons.get(item.parentRatingKey, None)
+            if season:
+                item_dict["season"] = season
+        if hasattr(item, "grandparentRatingKey") and item.grandparentRatingKey:
+            show = shows.get(item.grandparentRatingKey, None)
+            if show:
+                item_dict["show"] = show
+
+        return {
+            k: v
+            for k, v in item_dict.items()
+            if not k.startswith("_")
+            and k not in ["server", "section", "media", "parts", "sessionKey"]
+            and v is not None
+        }
+
     try:
         plex = await get_plex_server()
 
         if plex is None:
             raise ValueError("PlexClient instance is not initialized.")
-        for section_items in [
-                section.all()
-                for section
-                in await plex.library.sections()
-        ]:
-            for item in section_items.all():
-                reviews = None
-                if item and hasattr(item, "reviews"):
-                    reviews = await asyncio.to_thread(lambda i=item: i.reviews())
-                if not reviews:
-                    reviews = []
-
-                cache[item.ratingKey] = reviews
+        sections = await asyncio.to_thread(plex.library.sections)
+        shows, seasons = await asyncio.gather(
+            get_all_items(sections, "show"),
+            get_all_items(sections, "season")
+        )
+        movies, episodes = await asyncio.gather(
+            *[
+                get_all_items(sections, libtype)
+                for libtype
+                in ["movie", "episode"]
+            ]
+        )
+        cache = [
+            build_cache(item, seasons, shows)
+            for item
+            in itertools.chain(movies.values(), episodes.values())
+        ]
+        logger.info(f"Plex cache built with {len(cache)} items.")
         global media_cache
-        media_cache = cache
+        media_cache = {item["ratingKey"]: item for item in cache if item is not None}  # type: ignore
+
         logger.info("Plex cache refreshed successfully.")
+        async with aiofiles.open(
+            os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json"),
+            mode='w'
+        ) as f:
+            await f.write(to_json(media_cache))
+        logger.info("Plex cache saved successfully.")
+
     except Exception as e:
-        logger.error(f"Failed to refresh Plex cache: {e}")
+        logger.error(f"Failed to refresh Plex cache: {e}", exc_info=e)
 
 async def run_periodically(interval_sec: float):
     while True:
@@ -1863,7 +2287,7 @@ async def run_periodically(interval_sec: float):
         await asyncio.sleep(interval_sec)
 
 def main():
-    run_server("plex", add_args_fn=add_plex_args, run_callback=validate_args)
+    run_server("plex", add_args_fn=add_plex_args, run_callback=on_run_server)
 
 # --- Main Execution ---
 if __name__ == "__main__":
