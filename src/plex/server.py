@@ -387,10 +387,6 @@ async def get_plex_server() -> PlexServer:
         logger.exception("Failed to get Plex server instance")
         raise e
 
-
-mcp.add_middleware(LoggingMiddleware(logging.getLogger("MIDDLEWARE"), log_level=logging.INFO, include_payloads=True, ))
-
-
 @mcp.custom_route("/health", ["GET"], "health", False)
 async def health(request: Request) -> Response:
     try:
