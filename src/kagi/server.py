@@ -2,7 +2,8 @@ import argparse
 import textwrap
 from typing import Dict, Literal, Union, cast
 from base import run_server, mcp
-from kagiapi import KagiClient, EnrichResponse
+from kagiapi import KagiClient
+from kagiapi.models import EnrichResponse
 from concurrent.futures import ThreadPoolExecutor
 import os
 import json
