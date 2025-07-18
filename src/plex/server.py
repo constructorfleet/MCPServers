@@ -462,8 +462,8 @@ async def search_media(
     limit: Annotated[
         Optional[int],
         Field(
-            description="The number of items to return",
-            default=5,
+            description="The number of items to return, if not specified, all items are returned",
+            default=None,
             examples=[1,10,5],
         )
     ] = 5,
@@ -493,6 +493,7 @@ async def search_media(
     logger.info("Found %d results matching the query: %s", len(media), query)
 
     results: List[str] = []
+    limit = max(1, limit) if limit else len(media)  # Default to len(media) if limit is 0 or negative
     for i, m in enumerate(media, start=1):
         if len(results) > limit:
             break
@@ -594,7 +595,14 @@ async def search_movies(
             examples=[True, False],
         ),
     ] = None,
-    limit: Optional[int] = 5,
+    limit: Annotated[
+        Optional[int],
+        Field(
+            description="The number of items to return, if not specified, all items are returned",
+            default=None,
+            examples=[1, 5, 10],
+        )
+    ] = None,
 ) -> str:
     """
     Search for movies in your Plex library using optional filters.
@@ -617,9 +625,6 @@ async def search_movies(
         A formatted string of up to 5 matching movies (with a count of any additional results),
         or an error message if the search fails or no movies are found.
     """
-
-    # Validate the limit parameter
-    limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
 
     params = MovieSearchParams(
         title,
@@ -652,10 +657,12 @@ async def search_movies(
     logger.info("Found %d movies matching filters: %r", len(movies), filters)
 
     results: List[str] = []
+    # Validate the limit parameter
+    limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
     for i, m in enumerate(movies[:limit], start=1):
         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
 
-    if len(movies) > limit:
+    if limit and len(movies) > limit:
         results.append(f"\n... and {len(movies)-limit} more results.")
     logger.info("Returning %s.", "\n---\n".join(results))
     return "\n---\n".join(results)
@@ -866,7 +873,14 @@ async def search_shows(
             examples=[2020, 2021, 2022],
         ),
     ] = None,
-    limit: Optional[int] = 5,
+    limit: Annotated[
+        Optional[int],
+        Field(
+            description="The number of items to return, if not specified, all items are returned",
+            default=None,
+            examples=[1, 5, 10],
+        )
+    ] = None,
 ) -> str:
     """
     Search for movies in your Plex library using optional filters.
@@ -892,9 +906,6 @@ async def search_shows(
         A formatted string of up to 5 matching shows (with a count of any additional results),
         or an error message if the search fails or no movies are found.
     """
-
-    # Validate the limit parameter
-    limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
 
     params = ShowSearchParams(
         show_title,
@@ -930,7 +941,8 @@ async def search_shows(
         return f"No shows found matching filters {filters!r}."
 
     logger.info("Found %d shows matching filters: %r", len(episodes), filters)
-
+    # Validate the limit parameter
+    limit = max(1, limit) if limit else len(episodes)  # Default to 5 if limit is 0 or negative
     results: List[str] = []
     for i, m in enumerate(episodes[:limit], start=1):
         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
