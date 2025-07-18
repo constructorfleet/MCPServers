@@ -31,7 +31,9 @@ def kagi_search_fetch(
         with ThreadPoolExecutor() as executor:
             results = list(executor.map(kagi_client.search, queries, timeout=10))
 
-        return format_search_results(queries, results)
+        results = format_search_results(queries, results)
+        logger.info("Search results: %s", results)
+        return results
 
     except Exception as e:
         return f"Error: {str(e) or repr(e)}"
@@ -117,6 +119,8 @@ def kagi_summarizer(
             summary_type=summary_type,
             target_language=target_language,
         )["data"]["output"]
+
+        logger.info("Summarizer results: %s", summary)
 
         return summary
 
