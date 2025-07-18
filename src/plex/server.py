@@ -2175,7 +2175,7 @@ def on_run_server(args):
     logger.info("Loaded Plex cache with %d items.", len(media_cache))
     asyncio.run(run_periodically(60.0 * 60.0))
 
-async def refresh_cache():
+async def refresh_cache(new_only: bool = False):
     logger.info("Refreshing Plex cache...")
     async def get_all_items(sections, libtype) -> dict[str, Any]:
         return {
@@ -2260,12 +2260,19 @@ async def refresh_cache():
         )
         cache = [
             build_cache(item, seasons, shows)
-            for item
-            in itertools.chain(movies.values(), episodes.values())
+            for item in itertools.chain(movies.values(), episodes.values())
+            if not new_only or (
+                item is not None and item.ratingKey not in media_cache
+            )
         ]
+        for item in itertools.chain(shows.values(), seasons.values()):
+            cache.append(build_cache(item, {}, {}))
         logger.info(f"Plex cache built with {len(cache)} items.")
         global media_cache
-        media_cache = {item["ratingKey"]: item for item in cache if item is not None}  # type: ignore
+        if new_only:
+            media_cache.update({item["ratingKey"]: item for item in cache if item is not None})
+        else:
+            media_cache = {item["ratingKey"]: item for item in cache if item is not None}  # type: ignore
 
         logger.info("Plex cache refreshed successfully.")
         async with aiofiles.open(
