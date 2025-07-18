@@ -459,14 +459,14 @@ async def search_media(
             default=None
         )
     ],
-    limit: Annotated[
-        Optional[int],
-        Field(
-            description="Optionally limit the number of items returned.",
-            default=None,
-            examples=[None,1,10,5],
-        )
-    ] = None,
+    # limit: Annotated[
+    #     Optional[int],
+    #     Field(
+    #         description="Optionally limit the number of items returned.",
+    #         default=None,
+    #         examples=[None,1,10,5],
+    #     )
+    # ] = None,
 ) -> str:
     """
     Perform a smart media search.
@@ -493,13 +493,14 @@ async def search_media(
     logger.info("Found %d results matching the query: %s", len(media), query)
 
     results: List[str] = []
-    limit = max(1, limit) if limit else len(media)  # Default to len(media) if limit is 0 or negative
+    # limit = max(1, limit) if limit else len(media)  # Default to len(media) if limit is 0 or negative
+    limit = len(media)
     for i, m in enumerate(media, start=1):
         if len(results) > limit:
             break
         if not isinstance(m, Movie) and not isinstance(m, Episode):
             continue
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m) if isinstance(m, Movie) else format_episode(m)}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.ratingKey}\nTitle: {m.title}\n")  # type: ignore
 
     if len(media) > limit:
         results.append(f"\n... and {len(media)-limit} more results.")
@@ -595,14 +596,14 @@ async def search_movies(
             examples=[True, False],
         ),
     ] = None,
-    limit: Annotated[
-        Optional[int],
-        Field(
-            description="Optionally limit the number of items returned.",
-            default=None,
-            examples=[None,1, 5, 10],
-        )
-    ] = None,
+    # limit: Annotated[
+    #     Optional[int],
+    #     Field(
+    #         description="Optionally limit the number of items returned.",
+    #         default=None,
+    #         examples=[None,1, 5, 10],
+    #     )
+    # ] = None,
 ) -> str:
     """
     Search for movies in your Plex library using optional filters.
@@ -658,12 +659,14 @@ async def search_movies(
 
     results: List[str] = []
     # Validate the limit parameter
-    limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
+    # limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
+    limit = len(movies)
     for i, m in enumerate(movies[:limit], start=1):
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.ratingKey}\nTitle: {m.title}")  # type: ignore
+        # results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
 
-    if limit and len(movies) > limit:
-        results.append(f"\n... and {len(movies)-limit} more results.")
+    # if limit and len(movies) > limit:
+    #     results.append(f"\n... and {len(movies)-limit} more results.")
     logger.info("Returning %s.", "\n---\n".join(results))
     return "\n---\n".join(results)
 
@@ -873,14 +876,14 @@ async def search_shows(
             examples=[2020, 2021, 2022],
         ),
     ] = None,
-    limit: Annotated[
-        Optional[int],
-        Field(
-            description="Optionally limit the number of items returned.",
-            default=None,
-            examples=[None, 1, 5, 10],
-        )
-    ] = None,
+    # limit: Annotated[
+    #     Optional[int],
+    #     Field(
+    #         description="Optionally limit the number of items returned.",
+    #         default=None,
+    #         examples=[None, 1, 5, 10],
+    #     )
+    # ] = None,
 ) -> str:
     """
     Search for movies in your Plex library using optional filters.
@@ -942,7 +945,8 @@ async def search_shows(
 
     logger.info("Found %d shows matching filters: %r", len(episodes), filters)
     # Validate the limit parameter
-    limit = max(1, limit) if limit else len(episodes)  # Default to 5 if limit is 0 or negative
+    # limit = max(1, limit) if limit else len(episodes)  # Default to 5 if limit is 0 or negative
+    limit = len(episodes)
     results: List[str] = []
     for i, m in enumerate(episodes[:limit], start=1):
         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
