@@ -5,6 +5,7 @@ from base import run_server, mcp
 from kagiapi import KagiClient
 from concurrent.futures import ThreadPoolExecutor
 import os
+import json
 import logging
 from pydantic import Field
 
@@ -43,7 +44,11 @@ def kagi_search_fetch(
     try:
         if not queries:
             raise ValueError("Search called with no queries.")
-
+        logger.info(
+            "Performing Kagi search for queries: %s %s",
+            queries,
+            json.dumps(kagi_client.session.headers),
+        )
         with ThreadPoolExecutor() as executor:
             results = list(executor.map(kagi_client.search, queries, timeout=10))
 
