@@ -127,7 +127,7 @@ def format_session(session: PlexAPISession) -> str:
     """
     return (
         f"User: {session.user.username}"
-        f"{format_movie(session.source) if 'grandparentTitle' not in session.source else format_episode(session.source)}"
+        f"{format_movie(session.source) if isinstance(session.source(), Movie) else format_episode(session.source)}"
     )
 
 
