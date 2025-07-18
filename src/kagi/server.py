@@ -47,7 +47,7 @@ def kagi_search_fetch(
         logger.info(
             "Performing Kagi search for queries: %s %s",
             queries,
-            json.dumps(kagi_client.session.headers),
+            repr(kagi_client.session.headers),
         )
         with ThreadPoolExecutor() as executor:
             results = list(executor.map(kagi_client.search, queries, timeout=10))
