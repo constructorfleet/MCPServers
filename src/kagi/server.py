@@ -1,8 +1,8 @@
 import argparse
 import textwrap
-from typing import Literal, cast
+from typing import Dict, Literal, Union, cast
 from base import run_server, mcp
-from kagiapi import KagiClient
+from kagiapi import KagiClient, EnrichResponse
 from concurrent.futures import ThreadPoolExecutor
 import os
 import json
@@ -34,8 +34,12 @@ requests_log.propagate = True
 kagi_client: KagiClient
 
 
-@mcp.tool()
-def kagi_search_fetch(
+@mcp.tool(
+    name="get_news",
+    description="Retrive new results based on one or more queries using the Kagi Search API.",
+    tags=["search", "web", "news"],
+)
+def search_web(
     query: str = Field(
         description="Concise, keyword-focused search queries. Include essential context within each query for standalone use."
     ),
@@ -51,6 +55,44 @@ def kagi_search_fetch(
         )
         with ThreadPoolExecutor() as executor:
             results = list(executor.map(kagi_client.enrich, [query], timeout=10))
+        if not results or any("error" in result for result in results) or len(results) != 1:
+            logger.error("Search failed or returned no results: %s", results)
+            raise ValueError("Search failed or returned no results")
+        results = format_enrich_results(query, results[0])
+        logger.info("Search results: %s", results)
+        return results
+
+    except Exception as e:
+        logger.exception("Error in kagi_search_fetch: %s", e)
+        return f"Error: {str(e) or repr(e)}"
+
+mcp.tool(
+    name="web_topics",
+    description="Fetch web results from the provided query using the Kagi Search API.",
+    tags=["search", "web", "news"],
+)
+def get_news(
+    query: str = Field(
+        description="Concise, keyword-focused search queries. Include essential context within each query for standalone use."
+    ),
+) -> str:
+    """Fetch web results based on one or more queries using the Kagi Search API. Use for general search and when the user explicitly tells you to 'fetch' results/information. Results are from all queries given. They are numbered continuously, so that a user may be able to refer to a result by a specific number."""
+    try:
+        if not query:
+            raise ValueError("Search called with no queries.")
+        logger.info(
+            "Performing Kagi search for queries: %s %s",
+            query,
+            repr(kagi_client.session.headers),
+        )
+        def enrich_web(query: str) -> EnrichResponse:
+            params: Dict[str, Union[int, str]] = {"q": query}
+
+            response = kagi_client.session.get(KagiClient.BASE_URL + "/enrich/news", params=params)
+            response.raise_for_status()
+            return response.json()
+        with ThreadPoolExecutor() as executor:
+            results = list(executor.map(enrich_web, [query], timeout=10))
         if not results or any("error" in result for result in results) or len(results) != 1:
             logger.error("Search failed or returned no results: %s", results)
             raise ValueError("Search failed or returned no results")
