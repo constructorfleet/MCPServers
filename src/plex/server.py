@@ -464,9 +464,9 @@ async def search_media(
         Field(
             description="The number of items to return, if not specified, all items are returned",
             default=None,
-            examples=[1,10,5],
+            examples=[None,1,10,5],
         )
-    ] = 5,
+    ] = None,
 ) -> str:
     """
     Perform a smart media search.
@@ -600,7 +600,7 @@ async def search_movies(
         Field(
             description="The number of items to return, if not specified, all items are returned",
             default=None,
-            examples=[1, 5, 10],
+            examples=[None,1, 5, 10],
         )
     ] = None,
 ) -> str:
@@ -878,7 +878,7 @@ async def search_shows(
         Field(
             description="The number of items to return, if not specified, all items are returned",
             default=None,
-            examples=[1, 5, 10],
+            examples=[None, 1, 5, 10],
         )
     ] = None,
 ) -> str:
