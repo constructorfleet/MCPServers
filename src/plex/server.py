@@ -2173,7 +2173,7 @@ def on_run_server(args):
             global media_cache
             media_cache = from_json(f.read())
     logger.info("Loaded Plex cache with %d items.", len(media_cache))
-    asyncio.run_coroutine_threadsafe(refresh_cache(True), asyncio.get_event_loop())
+    asyncio.run(refresh_cache(False))
     asyncio.run(run_periodically(60.0 * 60.0))
 
 async def refresh_cache(new_only: bool = False):
@@ -2290,7 +2290,7 @@ async def run_periodically(interval_sec: float):
     while True:
         await asyncio.sleep(interval_sec)
         try:
-            await refresh_cache()
+            await refresh_cache(True)
         except Exception as e:
             print(f"Something went wrong, as expected: {e}")
 
