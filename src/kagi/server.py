@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-kagi_client = KagiClient()
+kagi_client: KagiClient
 
 
 @mcp.tool()
@@ -137,6 +137,10 @@ def ensure_env(args):
         if not args.kagi_key:
             raise Exception('Kagi API Key must be provided via --kagi-key or KAGI_API_KEY env')
         os.environ['KAGI_API_KEY'] = args.kagi_key
+    global kagi_client
+    kagi_client = KagiClient(os.environ["KAGI_API_KEY"])
+
+    return args
 
 def add_kagi_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
