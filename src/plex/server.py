@@ -145,8 +145,8 @@ def format_session(session: PlexAPISession) -> str:
     source = session.source()
     logger.error(json.dumps(toJson(source), indent=2))
     return (
-        f"User: {session.user.username}"
-        f"{format_movie(session.source) if 'grandFatherTitle' not in session.source() else format_episode(session.source)}"
+        f"User: {session.user.username}\n"
+        f"Media: {format_movie(source) if 'grandFatherTitle' not in source else format_episode(source)}\n"
     )
 
 
