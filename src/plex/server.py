@@ -17,6 +17,7 @@ import os
 from dataclasses import dataclass
 
 # --- Import Statements ---
+import re
 from typing import Annotated, Any, Dict, List, Optional, Callable
 from base import run_server, mcp
 from starlette.requests import Request
@@ -49,7 +50,15 @@ requests_log.propagate = True
 
 # --- Logging Setup ---
 logger = logging.getLogger(__name__)
+media_cache = {}
 
+
+def cache_result(key: str, value: Any) -> None:
+    media_cache[key] = value
+
+
+def get_cached_result(key: str) -> Optional[Any]:
+    return media_cache.get(key, None)
 
 # --- Utility Formatting Functions ---
 def default_filter(client: PlexAPIClient) -> bool:
@@ -477,12 +486,11 @@ async def search_media(
     returns:
       A formatted string or error message
     """
-    limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
     logger.info("Searching Plex with query: %s", query)
 
     try:
         plex = await get_plex_server()
-        media = await asyncio.to_thread(plex.search, query, limit=limit, mediatype=media_type)
+        media = await asyncio.to_thread(plex.search, query, mediatype=media_type)
     except Exception as e:
         logger.exception("smart_search failed connecting to Plex")
         return f"ERROR: Could not search Plex. {e}"
@@ -496,11 +504,14 @@ async def search_media(
     # limit = max(1, limit) if limit else len(media)  # Default to len(media) if limit is 0 or negative
     limit = len(media)
     for i, m in enumerate(media, start=1):
+        cache_result(m.ratingKey, m.title)
         if len(results) > limit:
             break
         if not isinstance(m, Movie) and not isinstance(m, Episode):
             continue
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\nTitle: {m.title}\n")  # type: ignore
+        results.append(
+            f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n"
+        )  # type: ignore
 
     if len(media) > limit:
         results.append(f"\n... and {len(media)-limit} more results.")
@@ -662,7 +673,8 @@ async def search_movies(
     # limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
     limit = len(movies)
     for i, m in enumerate(movies[:limit], start=1):
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\nTitle: {m.title}")  # type: ignore
+        cache_result(m.ratingKey, m.title)
+        results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
         # results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
 
     # if limit and len(movies) > limit:
@@ -696,6 +708,9 @@ async def get_movie_details(
     Returns:
         A formatted string with movie details or an error message.
     """
+    if result := get_cached_result(movie_key):
+        return result
+    logger.info("Fetching movie details for key '%s'", movie_key)
     try:
         plex = await get_plex_server()
     except Exception as e:
@@ -748,6 +763,7 @@ async def get_new_movies() -> str:
             return "No new movies found in your Plex library."
         results: List[str] = []
         for i, m in enumerate(movies[:10], start=1):
+            cache_result(m.ratingKey, m.title)
             results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
         logger.info(("Returning %s new movies.", "\n---\n".join(results)))
         return "\n---\n".join(results)
@@ -949,6 +965,7 @@ async def search_shows(
     limit = len(episodes)
     results: List[str] = []
     for i, m in enumerate(episodes[:limit], start=1):
+        cache_result(m.ratingKey, m)
         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
 
     if len(episodes) > limit:
@@ -982,6 +999,9 @@ async def get_episode_details(
     Returns:
         A formatted string with episode details or an error message.
     """
+    if result := get_cached_result(episode_key):
+        return result
+    logger.info("Fetching episode details for key '%s'", episode_key)
     try:
         plex = await get_plex_server()
     except Exception as e:
@@ -1034,6 +1054,7 @@ async def get_new_shows() -> str:
             return "No new episodes found in your Plex library."
         results: List[str] = []
         for i, m in enumerate(episodes[:10], start=1):
+            cache_result(m.ratingKey, m.title)
             results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
         logger.info("Returning %s new episodes.", "\n---\n".join(results))
         return "\n---\n".join(results)
@@ -1804,6 +1825,43 @@ def validate_args(args):
         os.environ["PLEX_SERVER_URL"], os.environ["PLEX_TOKEN"]
     )  # Initialize singleton
     asyncio.run(get_plex_server())
+    asyncio.run(run_periodically(10.0 * 60.0))
+
+async def refresh_cache():
+    logger.info("Refreshing Plex cache...")
+    cache = {}
+    try:
+        plex = await get_plex_server()
+
+        if plex is None:
+            raise ValueError("PlexClient instance is not initialized.")
+        for section_items in await asyncio.gather(
+            *[
+                await asyncio.to_thread(section.all)
+                for section
+                in await plex.library.sections()
+            ]):
+                for item in section_items.all():
+                    reviews = None
+                    if item and hasattr(item, "reviews"):
+                        reviews = await asyncio.to_thread(lambda i=item: i.reviews())
+                    if not reviews:
+                        reviews = []
+
+                    cache[item.ratingKey] = reviews
+        global media_cache
+        media_cache = cache
+        logger.info("Plex cache refreshed successfully.")
+    except Exception as e:
+        logger.error(f"Failed to refresh Plex cache: {e}")
+
+async def run_periodically(interval_sec: float):
+    while True:
+        try:
+            await refresh_cache()
+        except Exception as e:
+            print(f"Something went wrong, as expected: {e}")
+        await asyncio.sleep(interval_sec)
 
 def main():
     run_server("plex", add_args_fn=add_plex_args, run_callback=validate_args)
