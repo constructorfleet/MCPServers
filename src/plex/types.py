@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Dict
-
-from plex.server import logger
+import logging
 
 from plexapi.exceptions import Unauthorized
 from plexapi.server import PlexServer
 
+logger = logging.getLogger(__name__)
 
 class MediaType(StrEnum):
     ACTOR = 'actor'
