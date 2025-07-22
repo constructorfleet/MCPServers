@@ -8,29 +8,27 @@ to handle non-blocking I/O and to provide informative error messages.
 """
 import argparse
 import asyncio
-import datetime
 import itertools
-import json
 from enum import StrEnum
 import logging
 
 import os
-from dataclasses import dataclass
 
 # --- Import Statements ---
-from typing import Annotated, Any, Dict, List, Optional, Callable
+from typing import Annotated, Any, List, Optional, Callable
 from base import run_server, mcp
 from starlette.requests import Request
 from starlette.responses import Response
 from mcp.types import ToolAnnotations
+from plex.format import format_client, format_episode, format_movie, format_playlist, format_session
+from plex.types import MediaType, MovieSearchParams, PlexClient, ShowSearchParams
 from plex.utils import from_json, initialize_pickle, to_json
 from plexapi.base import PlexSession as PlexAPISession
-from plexapi.exceptions import NotFound, Unauthorized
+from plexapi.exceptions import NotFound
 from plexapi.library import MovieSection, ShowSection
 from plexapi.client import PlexClient as PlexAPIClient
 from plexapi.server import PlexServer
 from plexapi.video import Movie, Episode
-from plexapi.utils import toJson
 from pydantic import Field
 from rapidfuzz import process
 from rapidfuzz.fuzz import token_set_ratio
@@ -53,7 +51,6 @@ requests_log.propagate = True
 
 # --- Logging Setup ---
 logger = logging.getLogger(__name__)
-media_cache: dict[str, dict] = {}
 
 def recursive_get(s, key):
     if "." in key:
@@ -78,13 +75,6 @@ def sort_plex_objects_by_similarity(objects, filter_dict):
         reverse=True
     )
 
-def cache_result(key: str, value: dict) -> None:
-    media_cache[key] = value
-
-
-def get_cached_result(key: str) -> Optional[dict]:
-    return media_cache.get(key, None)
-
 # --- Utility Formatting Functions ---
 def default_filter(client: PlexAPIClient) -> bool:
     return True
@@ -98,138 +88,6 @@ def match_client_name(requested_client: str, candidates: list[PlexAPIClient], fi
     candidate_map = {c.title: c for c in candidates if filter(c)}
     choice, score, _ = process.extractOne(requested_client, list(candidate_map.keys()), score_cutoff=60)
     return candidate_map.get(choice, None) if score >= 60 else None
-
-def format_movie(movie) -> str:
-    """
-    Format a movie object into a human-readable string.
-
-    Parameters:
-        movie: A Plex movie object.
-
-    Returns:
-        A formatted string containing movie details.
-    """
-    title = getattr(movie, "title", "Unknown Title")
-    year = getattr(movie, "year", "Unknown Year")
-    summary = getattr(movie, "summary", "No summary available")
-    duration = (
-        getattr(movie, "duration", 0) // 60000 if hasattr(movie, "duration") else 0
-    )
-    rating = getattr(movie, "rating", "Unrated")
-    studio = getattr(movie, "studio", "Unknown Studio")
-    directors = [director.tag for director in getattr(movie, "directors", [])[:3]]
-    actors = [role.tag for role in getattr(movie, "roles", [])[:5]]
-
-    return (
-        f"Title: {title} ({year})\n"
-        f"Rating: {rating}\n"
-        f"Duration: {duration} minutes\n"
-        f"Studio: {studio}\n"
-        f"Directors: {', '.join(directors) if directors else 'Unknown'}\n"
-        f"Starring: {', '.join(actors) if actors else 'Unknown'}\n"
-        f"Summary: {summary}\n"
-    )
-
-
-def format_episode(episode) -> str:
-    """
-    Format an episode object into a human-readable string.
-
-    Parameters:
-        episode: A Plex episode object.
-
-    Returns:
-        A formatted string containing episode details.
-    """
-    show_title = getattr(episode, "grandparentTitle", "Unknown Show")
-    season_number = getattr(episode, "parentIndex", "Unknown Season")
-    episode_number = getattr(episode, "index", "Unknown Episode")
-    title = getattr(episode, "title", "Unknown Title")
-    summary = getattr(episode, "summary", "No summary available")
-    duration = (
-        getattr(episode, "duration", 0) // 60000 if hasattr(episode, "duration") else 0
-    )
-    rating = getattr(episode, "rating", "Unrated")
-    studio = getattr(episode, "studio", "Unknown Studio")
-    directors = [director.tag for director in getattr(episode, "directors", [])[:3]]
-    actors = [role.tag for role in getattr(episode, "roles", [])[:5]]
-    year = getattr(episode, "year", "Unknown Year")
-
-    return (
-        f"Show: {show_title}\n"
-        f"Season: {season_number}, Episode: {episode_number}\n"
-        f"Year: {year}\n"
-        f"Title: {title} ({year})\n"
-        f"Rating: {rating}\n"
-        f"Duration: {duration} minutes\n"
-        f"Studio: {studio}\n"
-        f"Directors: {', '.join(directors) if directors else 'Unknown'}\n"
-        f"Starring: {', '.join(actors) if actors else 'Unknown'}\n"
-        f"Summary: {summary}\n"
-    )
-
-def format_session(session: PlexAPISession) -> str:
-    """
-    Format a Plex session object into a human-readable string.
-    Parameters:
-        session: A Plex session object
-    Returns:
-        A formatted string containing session details.
-    """
-    source = session.source()
-    logger.error(json.dumps(toJson(source), indent=2))
-    return (
-        f"User: {session.user.username}\n"
-        f"Media: {format_movie(source) if 'grandFatherTitle' not in source else format_episode(source)}\n"
-    )
-
-
-def format_client(client: PlexAPIClient) -> str:
-    """
-    Format a Plex client object into a human-readable string.
-    Parameters:
-        client: A Plex client object.
-    Returns:
-        A formatted string containing client details.
-    """
-    return (
-        f"Client: {client.title}\n"
-        f"Platform: {client.platform}\n"
-        f"Product: {client.product}\n"
-        f"Version: {client.version}\n"
-        f"Device: {client.device}\n"
-        f"State: {client.state}\n"
-        f"address: {client.address}\n"
-    )
-
-
-def format_playlist(playlist) -> str:
-    """
-    Format a playlist into a human-readable string.
-
-    Parameters:
-        playlist: A Plex playlist object.
-
-    Returns:
-        A formatted string containing playlist details.
-    """
-    duration_mins = (
-        sum(item.duration for item in playlist.items()) // 60000
-        if playlist.items()
-        else 0
-    )
-    updated = (
-        playlist.updatedAt.strftime("%Y-%m-%d %H:%M:%S")
-        if hasattr(playlist, "updatedAt")
-        else "Unknown"
-    )
-    return (
-        f"Playlist: {playlist.title}\n"
-        f"Items: {len(playlist.items())}\n"
-        f"Duration: {duration_mins} minutes\n"
-        f"Last Updated: {updated}\n"
-    )
-
 
 def movie_section(server: PlexServer) -> Optional[MovieSection]:
     """Get the first movie section from the Plex server."""
@@ -253,156 +111,6 @@ def show_section(server: PlexServer) -> Optional[ShowSection]:
         ),
         None,
     )
-
-
-# --- Plex Client Class ---
-
-
-class PlexClient:
-    """
-    Encapsulate the Plex connection logic.
-    This class handles initialization and caching of the PlexServer instance.
-    """
-
-    def __init__(self, server_url: str | None = None, token: str | None = None):
-        self.server_url = server_url or os.environ.get("PLEX_SERVER_URL", "").rstrip(
-            "/"
-        )
-        self.token = token or os.environ.get("PLEX_TOKEN")
-
-        if not self.server_url or not self.token:
-            raise ValueError(
-                "Missing required configuration: Ensure PLEX_SERVER_URL and PLEX_TOKEN are set."
-            )
-
-        self._server = None
-
-    def get_server(self) -> PlexServer:
-        """
-        Return a cached PlexServer instance or initialize one if not already available.
-
-        Returns:
-            A connected PlexServer instance.
-
-        Raises:
-            Exception: If connection initialization fails.
-        """
-        if self._server is None:
-            try:
-                logger.info("Initializing PlexServer with URL: %s", self.server_url)
-                self._server = PlexServer(self.server_url, self.token)
-                logger.info("Successfully initialized PlexServer.")
-
-                # Validate the connection
-                self._server.library.sections()  # Attempt to fetch library sections
-                logger.info("Plex server connection validated.")
-            except Unauthorized as exc:
-                logger.error("Unauthorized: Invalid Plex token provided.")
-                raise Exception("Unauthorized: Invalid Plex token provided.") from exc
-            except Exception as exc:
-                logger.exception("Error initializing Plex server: %s", exc)
-                raise Exception(f"Error initializing Plex server: {exc}") from exc
-        return self._server
-
-
-# --- Data Classes ---
-
-
-@dataclass
-class MovieSearchParams:
-    title: Optional[str] = None
-    year: Optional[int] = None
-    director: Optional[str] = None
-    studio: Optional[str] = None
-    genre: Optional[str] = None
-    actor: Optional[str] = None
-    rating: Optional[str] = None
-    country: Optional[str] = None
-    language: Optional[str] = None
-    watched: Optional[bool] = None  # True=only watched, False=only unwatched
-
-    def to_filters(self) -> Dict[str, Any]:
-        FIELD_MAP = {
-            "title": "title",
-            "year": "year",
-            "director": "director",
-            "studio": "studio",
-            "genre": "genre",
-            "actor": "actor",
-            "rating": "contentRating",
-            "country": "country",
-            "language": "audioLanguage",
-            "watched": "unwatched",
-        }
-
-        filters: Dict[str, Any] = {"libtype": "movie"}
-
-        for field_name, plex_arg in FIELD_MAP.items():
-            value = getattr(self, field_name)
-            if value is None:
-                continue
-
-            if field_name == "watched":
-                # invert for Plex 'unwatched' flag
-                filters["unwatched"] = not value
-                continue
-
-            filters[plex_arg] = value
-
-        return filters
-
-
-@dataclass
-class ShowSearchParams:
-    show_title: Optional[str] = None
-    show_year: Optional[int] = None
-    director: Optional[str] = None
-    studio: Optional[str] = None
-    genre: Optional[str] = None
-    actor: Optional[str] = None
-    rating: Optional[str] = None
-    country: Optional[str] = None
-    language: Optional[str] = None
-    watched: Optional[bool] = None  # True=only watched, False=only unwatched
-    season: Optional[int] = None
-    episode: Optional[int] = None
-    episode_title: Optional[str] = None
-    episode_year: Optional[int] = None
-
-    def to_filters(self) -> Dict[str, Any]:
-        FIELD_MAP = {
-            "show_title": "show.title",
-            "show_year": "show.year",
-            "director": "show.director",
-            "studio": "episode.studio",
-            "genre": "episode.genre",
-            "actor": "show.actor",
-            "rating": "show.contentRating",
-            "country": "show.country",
-            "language": "episode.audioLanguage",
-            "watched": "episode.unwatched",
-            "season": "season.index",
-            "episode": "episode.index",
-            "episode_title": "episode.title",
-            "episode_year": "episode.year",
-        }
-
-        params: Dict[str, Any] = {"libtype": "episode"}
-        filters: Dict[str, Any] = {}
-        for field_name, plex_arg in FIELD_MAP.items():
-            value = getattr(self, field_name)
-            if value is None:
-                continue
-
-            if field_name == "watched":
-                # invert for Plex 'unwatched' flag
-                filters["unwatched"] = not value
-                continue
-
-            filters[plex_arg] = value
-        params["filters"] = filters
-        return params
-
 
 # --- Global Singleton and Access Functions ---
 
@@ -450,26 +158,6 @@ async def health(request: Request) -> Response:
 
 
 # --- Tool Methods ---
-class MediaType(StrEnum):
-    ACTOR = 'actor'
-    ALBUM = 'album'
-    ARTIST = 'artist'
-    AUTO_TAG = 'autotag'
-    COLLECTION = 'collection'
-    DIRECTOR = 'director'
-    EPISODE = 'episode'
-    GAME = 'game'
-    GENRE = 'genre'
-    MOVIE = 'movie'
-    PHOTO = 'photo'
-    PHOTO_ALBUM = 'photoalbum'
-    PLACE = 'place'
-    PLAYLIST = 'playlist'
-    SHARED = 'shared'
-    SHOW = 'show'
-    TAG = 'tag'
-    TRACK = 'track'
-
 @mcp.tool(
     name="search_media",
     description="'Smart' search for movies, shows, episodes, and more across the entire Plex library.",
@@ -493,14 +181,14 @@ async def search_media(
             default=None
         )
     ],
-    # limit: Annotated[
-    #     Optional[int],
-    #     Field(
-    #         description="Optionally limit the number of items returned.",
-    #         default=None,
-    #         examples=[None,1,10,5],
-    #     )
-    # ] = None,
+    limit: Annotated[
+        Optional[int],
+        Field(
+            description="Optionally limit the number of items returned.",
+            default=None,
+            examples=[None,1,10,5],
+        )
+    ] = None,
 ) -> str:
     """
     Perform a smart media search.
@@ -526,17 +214,14 @@ async def search_media(
     logger.info("Found %d results matching the query: %s", len(media), query)
 
     results: List[str] = []
-    # limit = max(1, limit) if limit else len(media)  # Default to len(media) if limit is 0 or negative
-    limit = len(media)
+    limit = max(1, limit) if limit else len(media)  # Default to len(media) if limit is 0 or negative
+    # limit = len(media)
     for i, m in enumerate(media, start=1):
-        cache_result(m.ratingKey, m.title)
         if len(results) > limit:
             break
         if not isinstance(m, Movie) and not isinstance(m, Episode):
             continue
-        results.append(
-            f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n"
-        )  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m) if isinstance(m, Movie) else format_episode(m)}")  # type: ignore
 
     if len(media) > limit:
         results.append(f"\n... and {len(media)-limit} more results.")
@@ -632,14 +317,14 @@ async def search_movies(
             examples=[True, False],
         ),
     ] = None,
-    # limit: Annotated[
-    #     Optional[int],
-    #     Field(
-    #         description="Optionally limit the number of items returned.",
-    #         default=None,
-    #         examples=[None,1, 5, 10],
-    #     )
-    # ] = None,
+    limit: Annotated[
+        Optional[int],
+        Field(
+            description="Optionally limit the number of items returned.",
+            default=None,
+            examples=[None,1, 5, 10],
+        )
+    ] = None,
 ) -> str:
     """
     Search for movies in your Plex library using optional filters.
@@ -695,12 +380,11 @@ async def search_movies(
 
     results: List[str] = []
     # Validate the limit parameter
-    # limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
-    limit = len(movies)
-    for i, m in enumerate(movies[:limit], start=1):
-        cache_result(m.ratingKey, m.title)
-        results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        # results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
+    limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
+    sorted_movies = sort_plex_objects_by_similarity(movies, params)
+    for i, m in enumerate(sorted_movies[:limit], start=1):
+        # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
 
     # if limit and len(movies) > limit:
     #     results.append(f"\n... and {len(movies)-limit} more results.")
@@ -733,8 +417,6 @@ async def get_movie_details(
     Returns:
         A formatted string with movie details or an error message.
     """
-    if result := get_cached_result(movie_key):
-        return result
     logger.info("Fetching movie details for key '%s'", movie_key)
     try:
         plex = await get_plex_server()
@@ -788,7 +470,6 @@ async def get_new_movies() -> str:
             return "No new movies found in your Plex library."
         results: List[str] = []
         for i, m in enumerate(movies[:10], start=1):
-            cache_result(m.ratingKey, m.title)
             results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
         logger.info(("Returning %s new movies.", "\n---\n".join(results)))
         return "\n---\n".join(results)
@@ -917,14 +598,14 @@ async def search_shows(
             examples=[2020, 2021, 2022],
         ),
     ] = None,
-    # limit: Annotated[
-    #     Optional[int],
-    #     Field(
-    #         description="Optionally limit the number of items returned.",
-    #         default=None,
-    #         examples=[None, 1, 5, 10],
-    #     )
-    # ] = None,
+    limit: Annotated[
+        Optional[int],
+        Field(
+            description="Optionally limit the number of items returned.",
+            default=None,
+            examples=[None, 1, 5, 10],
+        )
+    ] = None,
 ) -> str:
     """
     Search for movies in your Plex library using optional filters.
@@ -986,11 +667,10 @@ async def search_shows(
 
     logger.info("Found %d shows matching filters: %r", len(episodes), filters)
     # Validate the limit parameter
-    # limit = max(1, limit) if limit else len(episodes)  # Default to 5 if limit is 0 or negative
-    limit = len(episodes)
+    limit = max(1, limit) if limit else len(episodes)  # Default to 5 if limit is 0 or negative
+    sorted_episodes = sort_plex_objects_by_similarity(episodes, params)
     results: List[str] = []
-    for i, m in enumerate(episodes[:limit], start=1):
-        cache_result(m.ratingKey, m)
+    for i, m in enumerate(sorted_episodes[:limit], start=1):
         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
 
     if len(episodes) > limit:
@@ -1024,8 +704,6 @@ async def get_episode_details(
     Returns:
         A formatted string with episode details or an error message.
     """
-    if result := get_cached_result(episode_key):
-        return result
     logger.info("Fetching episode details for key '%s'", episode_key)
     try:
         plex = await get_plex_server()
@@ -1079,7 +757,6 @@ async def get_new_shows() -> str:
             return "No new episodes found in your Plex library."
         results: List[str] = []
         for i, m in enumerate(episodes[:10], start=1):
-            cache_result(m.ratingKey, m.title)
             results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
         logger.info("Returning %s new episodes.", "\n---\n".join(results))
         return "\n---\n".join(results)
@@ -1188,7 +865,7 @@ async def play_media_on_client(
         else:
             client = match_client_name(machine_identifier_or_client_name, clients, filter=lambda c: "playback" in c.protocolCapabilities)
         if not client:
-            return f"No client found with machine identifier {machine_identifier}."
+            return f"No client found with machine identifier/name {machine_identifier_or_client_name}."
         if "playback" not in client.protocolCapabilities:
             return f"Client {client.title} does not support playback control."
         logger.info("Found client: %s with media key: %s", client.title, media_key)
@@ -1219,7 +896,7 @@ class MediaCommand(StrEnum):
 
 @mcp.tool(
         name="control_client_playback",
-        description="Control playback on a specified Plex client (play, pause, stop).",
+        description="Control playback on a specified Plex client ('play', 'resume', 'pause', 'stop', 'fast forward', 'rewind', 'next', 'previous', 'seek', 'skip', 'start over).",
         annotations=ToolAnnotations(
             title="Control Client Playback",
         ),)
@@ -1917,6 +1594,14 @@ async def get_movie_recommendations(
             examples=["12345", "67890"],
         ),
     ] = None,
+    limit: Annotated[
+        Optional[int],
+        Field(
+            description="Maximum number of recommendations to return",
+            default=10,
+            examples=[5, 10, 20],
+        ),
+    ] = 10,
 ) -> str:
     """
     Get recommendations for movies based on various filters.
@@ -1937,27 +1622,61 @@ async def get_movie_recommendations(
     Returns:
         A list of movie keys and titles that match the given filters sorted by relevance, or an error message.
     """
-    movies = [m for m in media_cache.values() if m.get("type") == "movie"]
-    filter = media_cache.get(similar_movie_key or "", {})
-    for key, value in {
-        "year": year,
-        "director": director,
-        "studio": studio,
-        "genre": genre,
-        "actor": actor,
-        "rating": rating,
-        "country": country,
-        "language": language,
-        "watched": watched,
-        "title": title,
-    }.items():
-        if value is not None:
-            filter[key] = value
-    return "\n".join([
-        f"{m['ratingKey']}: {m['title']}"
-        for m
-        in sort_plex_objects_by_similarity(movies, filter)][:50]
-    ) or "No recommendations found."
+    try:
+        plex = await get_plex_server()
+        library_section = movie_section(plex)
+        if not library_section:
+            return "ERROR: No movie section found in your Plex library."
+        movies = await asyncio.to_thread(library_section.all)
+    except Exception as e:
+        logger.exception("search_movies failed connecting to Plex")
+        return f"ERROR: Could not search Plex. {e}"
+
+    if not movies:
+        return "No movies found."
+
+    logger.info("Found %d movies", len(movies))
+    if similar_movie_key:
+        similar_movie = next((m for m in movies if m.ratingKey == similar_movie_key), None)
+        if not similar_movie:
+            return f"ERROR: Movie with key {similar_movie_key} not found."
+        params = MovieSearchParams(
+            title if title else similar_movie.title,
+            year if year else similar_movie.year,
+            director if director else similar_movie.director,
+            studio if studio else similar_movie.studio,
+            genre if genre else similar_movie.genre,
+            actor if actor else similar_movie.actor,
+            rating if rating else similar_movie.rating,
+            country if country else similar_movie.country,
+            language if language else similar_movie.language,
+            watched if watched else similar_movie.watched,
+        )
+    else:
+        params = MovieSearchParams(
+            title,
+            year,
+            director,
+            studio,
+            genre,
+            actor,
+            rating,
+            country,
+            language,
+            watched,
+        )
+    filters = params.to_filters()
+    results: List[str] = []
+    # Validate the limit parameter
+    limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
+    sorted_movies = sort_plex_objects_by_similarity(movies, filters)
+    for i, m in enumerate(sorted_movies[:limit], start=1):
+        # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
+
+    # if limit and len(movies) > limit:
+    #     results.append(f"\n... and {len(movies)-limit} more results.")
+    logger.info("Returning %s.", "\n---\n".join(results))
 
 @mcp.tool(
     name="get_show_recommendations",
@@ -2087,6 +1806,14 @@ async def get_show_recommendations(
             examples=["12345", "67890"],
         ),
     ] = None,
+    limit: Annotated[
+        Optional[int],
+        Field(
+            description="Limit the number of recommendations returned.",
+            default=10,
+            examples=[5, 10, 20],
+        ),
+    ] = 10,
 ) -> str:
     """
     Get recommendations for show based on various filters.
@@ -2112,32 +1839,66 @@ async def get_show_recommendations(
     Returns:
         A list of movie keys and titles that match the given filters sorted by relevance, or an error message.
     """
-    episodes = [m for m in media_cache.values() if m.get("type") == "episode"]
-    filter = media_cache.get(similar_show_key or "", {})
+    try:
+        plex = await get_plex_server()
+        library_section = show_section(plex)
+        if not library_section:
+            return "ERROR: No movie section found in your Plex library."
+        episodes = await asyncio.to_thread(library_section.all)
+    except Exception as e:
+        logger.exception("search_movies failed connecting to Plex")
+        return f"ERROR: Could not search Plex. {e}"
 
-    for key, value in {
-        "show.title": show_title,
-        "show.year": show_year,
-        "season.index": season,
-        "index": episode,
-        "title": episode_title,
-        "director": director,
-        "studio": studio,
-        "genre": genre,
-        "actor": actor,
-        "rating": rating,
-        "country": country,
-        "language": language,
-        "watched": watched,
-        "year": episode_year,
-    }.items():
-        if value is  None:
-            filter[key] = value
-    return "\n".join([
-        f"{m['ratingKey']}: {m['title']}"
-        for m
-        in sort_plex_objects_by_similarity(episodes, filter)][:50]
-    ) or "No recommendations found."
+    if not episodes:
+        return "No episodes found."
+    logger.info("Found %d episodes", len(episodes))
+
+    if similar_show_key:
+        similar_show = next((m for m in episodes if m.ratingKey == similar_show_key), None)
+        if not similar_show:
+            return f"ERROR: Show with key {similar_show_key} not found."
+        params = ShowSearchParams(
+            show_title if show_title else similar_show.title,
+            show_year if show_year else similar_show.year,
+            director if director else similar_show.director,
+            studio if studio else similar_show.studio,
+            genre if genre else similar_show.genre,
+            actor if actor else similar_show.actor,
+            rating if rating else similar_show.rating,
+            country if country else similar_show.country,
+            language if language else similar_show.language,
+            watched if watched else similar_show.watched,
+            season if season is not None else similar_show.season.index,
+            episode if episode is not None else similar_show.index,
+            episode_title if episode_title else similar_show.title,
+            episode_year if episode_year is not None else similar_show.year
+        )
+    else:
+        params = ShowSearchParams(
+            show_title,
+            show_year,
+            director,
+            studio,
+            genre,
+            actor,
+            rating,
+            country,
+            language,
+            watched,
+            season,
+            episode,
+            episode_title,
+            episode_year
+        )
+    filters = params.to_filters()
+    results: List[str] = []
+    # Validate the limit parameter
+    limit = max(1, limit) if limit else len(episodes)  # Default to 5 if limit is 0 or negative
+    sorted_episodes = sort_plex_objects_by_similarity(episodes, filters)
+    for i, m in enumerate(sorted_episodes[:limit], start=1):
+        # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
+    return "\n".join(results)
 
 def add_plex_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
@@ -2162,137 +1923,128 @@ def on_run_server(args):
         if not args.plex_token:
             raise ValueError("Plex token must be provided via --plex-token or PLEX_TOKEN environment variable.")
         os.environ["PLEX_TOKEN"] = args.plex_token
-    initialize_pickle(os.environ["PLEX_SERVER_URL"])
+    # initialize_pickle(os.environ["PLEX_SERVER_URL"])
     PlexClient(
         os.environ["PLEX_SERVER_URL"], os.environ["PLEX_TOKEN"]
     )  # Initialize singleton
     asyncio.run(get_plex_server())
-    if os.path.exists(os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json")):
-        logger.info("Loading Plex cache from disk...")
-        with open(os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json"), "r") as f:
-            global media_cache
-            media_cache = from_json(f.read())
-    logger.info("Loaded Plex cache with %d items.", len(media_cache))
-    asyncio.run(refresh_cache(False))
-    asyncio.run(run_periodically(60.0 * 60.0))
+    # if os.path.exists(os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json")):
+    #     with open(os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json"), "r") as f:
+    #         global media_cache
+    #         media_cache = from_json(f.read())
+    # logger.info("Loaded Plex cache with %d items.", len(media_cache))
+    # asyncio.run(run_periodically(20.0 * 60.0))
 
-async def refresh_cache(new_only: bool = False):
-    logger.info("Refreshing Plex cache...")
-    async def get_all_items(sections, libtype) -> dict[str, Any]:
-        return {
-            m.ratingKey: m
-            for m
-            in list(itertools.chain(*await asyncio.gather(*[
-                asyncio.to_thread(section.all, libtype=libtype)
-                for section
-                in sections
-        ])))}
+# async def refresh_cache():
+#     logger.info("Refreshing Plex cache...")
+#     async def get_all_items(sections, libtype) -> dict[str, Any]:
+#         return {
+#             m.ratingKey: m
+#             for m
+#             in list(itertools.chain(*await asyncio.gather(*[
+#                 asyncio.to_thread(section.all, libtype=libtype)
+#                 for section
+#                 in sections
+#         ])))}
 
-    def build_cache(item, seasons, shows) -> Optional[dict[str, Any]]:
-        if not item or not hasattr(item, "ratingKey"):
-            return None
-        item_dict = item.__dict__
-        item_dict["reviews"] = (
-            [
-                r
-                for r
-                in item.reviews()
-            ] if hasattr(item, "reviews") else []
-        )
-        item_dict["actors"] = (
-            [
-                a
-                for a
-                in item.actors
-            ] if hasattr(item, "actors") else []
-        )
-        item_dict["directors"] = (
-            [
-                a
-                for a
-                in item.directors
-            ] if hasattr(item, "directors") else []
-        )
-        item_dict["writers"] = (
-            [
-                a
-                for a
-                in item.writers
-            ] if hasattr(item, "writers") else []
-        )
-        item_dict["genres"] = (
-            [a for a in item.genres]
-            if hasattr(item, "genres")
-            else []
-        )
-        if hasattr(item, "parentRatingKey") and item.parentRatingKey:
-            season = seasons.get(item.parentRatingKey, None)
-            if season:
-                item_dict["season"] = season
-        if hasattr(item, "grandparentRatingKey") and item.grandparentRatingKey:
-            show = shows.get(item.grandparentRatingKey, None)
-            if show:
-                item_dict["show"] = show
+#     def build_cache(item, seasons, shows) -> Optional[dict[str, Any]]:
+#         if not item or not hasattr(item, "ratingKey"):
+#             return None
+#         item_dict = item.__dict__
+#         item_dict["reviews"] = (
+#             [
+#                 r
+#                 for r
+#                 in item.reviews()
+#             ] if hasattr(item, "reviews") else []
+#         )
+#         item_dict["actors"] = (
+#             [
+#                 a
+#                 for a
+#                 in item.actors
+#             ] if hasattr(item, "actors") else []
+#         )
+#         item_dict["directors"] = (
+#             [
+#                 a
+#                 for a
+#                 in item.directors
+#             ] if hasattr(item, "directors") else []
+#         )
+#         item_dict["writers"] = (
+#             [
+#                 a
+#                 for a
+#                 in item.writers
+#             ] if hasattr(item, "writers") else []
+#         )
+#         item_dict["genres"] = (
+#             [a for a in item.genres]
+#             if hasattr(item, "genres")
+#             else []
+#         )
+#         if hasattr(item, "parentRatingKey") and item.parentRatingKey:
+#             season = seasons.get(item.parentRatingKey, None)
+#             if season:
+#                 item_dict["season"] = season
+#         if hasattr(item, "grandparentRatingKey") and item.grandparentRatingKey:
+#             show = shows.get(item.grandparentRatingKey, None)
+#             if show:
+#                 item_dict["show"] = show
 
-        return {
-            k: v
-            for k, v in item_dict.items()
-            if not k.startswith("_")
-            and k not in ["server", "section", "media", "parts", "sessionKey"]
-            and v is not None
-        }
+#         return {
+#             k: v
+#             for k, v in item_dict.items()
+#             if not k.startswith("_")
+#             and k not in ["server", "section", "media", "parts", "sessionKey"]
+#             and v is not None
+#         }
 
-    try:
-        plex = await get_plex_server()
+#     try:
+#         plex = await get_plex_server()
 
-        if plex is None:
-            raise ValueError("PlexClient instance is not initialized.")
-        sections = await asyncio.to_thread(plex.library.sections)
-        shows, seasons = await asyncio.gather(
-            get_all_items(sections, "show"),
-            get_all_items(sections, "season")
-        )
-        movies, episodes = await asyncio.gather(
-            *[
-                get_all_items(sections, libtype)
-                for libtype
-                in ["movie", "episode"]
-            ]
-        )
-        cache = [
-            build_cache(item, seasons, shows)
-            for item in itertools.chain(movies.values(), episodes.values())
-            if not new_only or (
-                item is not None and item.ratingKey not in media_cache
-            )
-        ]
-        for item in itertools.chain(shows.values(), seasons.values()):
-            cache.append(build_cache(item, {}, {}))
-        logger.info(f"Plex cache built with {len(cache)} items.")
-        global media_cache
-        if new_only:
-            media_cache.update({item["ratingKey"]: item for item in cache if item is not None})
-        else:
-            media_cache = {item["ratingKey"]: item for item in cache if item is not None}  # type: ignore
+#         if plex is None:
+#             raise ValueError("PlexClient instance is not initialized.")
+#         sections = await asyncio.to_thread(plex.library.sections)
+#         shows, seasons = await asyncio.gather(
+#             get_all_items(sections, "show"),
+#             get_all_items(sections, "season")
+#         )
+#         movies, episodes = await asyncio.gather(
+#             *[
+#                 get_all_items(sections, libtype)
+#                 for libtype
+#                 in ["movie", "episode"]
+#             ]
+#         )
+#         cache = [
+#             build_cache(item, seasons, shows)
+#             for item
+#             in itertools.chain(movies.values(), episodes.values())
+#         ]
+#         logger.info(f"Plex cache built with {len(cache)} items.")
+#         global media_cache
+#         media_cache = {item["ratingKey"]: item for item in cache if item is not None}  # type: ignore
 
-        logger.info("Plex cache refreshed successfully.")
-        async with aiofiles.open(
-            os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json"),
-            mode='w'
-        ) as f:
-            await f.write(to_json(media_cache))
-        logger.info("Plex cache saved successfully.")
+#         logger.info("Plex cache refreshed successfully.")
+#         async with aiofiles.open(
+#             os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json"),
+#             mode='w'
+#         ) as f:
+#             await f.write(to_json(media_cache))
+#         logger.info("Plex cache saved successfully.")
 
-    except Exception as e:
-        logger.error(f"Failed to refresh Plex cache: {e}", exc_info=e)
+#     except Exception as e:
+#         logger.error(f"Failed to refresh Plex cache: {e}", exc_info=e)
 
-async def run_periodically(interval_sec: float):
-    while True:
-        await asyncio.sleep(interval_sec)
-        try:
-            await refresh_cache(True)
-        except Exception as e:
-            print(f"Something went wrong, as expected: {e}")
+# async def run_periodically(interval_sec: float):
+#     while True:
+#         try:
+#             await refresh_cache()
+#         except Exception as e:
+#             print(f"Something went wrong, as expected: {e}")
+#         await asyncio.sleep(interval_sec)
 
 def main():
     run_server("plex", add_args_fn=add_plex_args, run_callback=on_run_server)

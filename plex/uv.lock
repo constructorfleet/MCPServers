@@ -434,7 +434,7 @@ wheels = [
 
 [[package]]
 name = "mcp-base"
-version = "0.1.0"
+version = "0.1.1"
 source = { directory = "../base" }
 dependencies = [
     { name = "fastmcp" },
@@ -449,7 +449,7 @@ requires-dist = [
 
 [[package]]
 name = "mcp-plex"
-version = "0.8.0"
+version = "0.8.6"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },

@@ -1,10 +1,25 @@
 import argparse
+import asyncio
+from inspect import isawaitable
+import inspect
 import logging
 from fastmcp import FastMCP
 from fastmcp.server.middleware.logging import LoggingMiddleware
 
 mcp: FastMCP = FastMCP()  # Decorators can import this
 mcp.add_middleware(LoggingMiddleware(logging.getLogger("MIDDLEWARE"), log_level=logging.INFO, include_payloads=True, ))
+
+def is_safe_async_callable(var):
+    if not callable(var):
+        return False
+    if inspect.iscoroutinefunction(var):
+        return True
+    try:
+        result = var()
+        return inspect.isawaitable(result)
+    except TypeError:
+        # Probably requires arguments; can’t confirm awaitability
+        return False
 
 def parse_args(server_name: str, add_args_fn=None):
     parser = argparse.ArgumentParser(description=f"Start the {server_name} FastMCP server.")
@@ -58,27 +73,32 @@ def run_server(server_name: str, add_args_fn=None, run_callback=None):
     args = parse_args(server_name, add_args_fn)
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), "INFO"))
 
-    # Let the child do any last-minute config
-    if run_callback:
-        run_callback(args)
+    async def run():
+        # Let the child do any last-minute config
+        if run_callback:
+            if is_safe_async_callable(run_callback):
+                await run_callback(args)
+            else:
+                run_callback(args)
 
-    if args.transport == "stdio":
-        mcp.run(transport="stdio")
-    elif args.transport == "sse":
-        mcp.run(
-            transport="sse",
-            host=args.bind,
-            port=args.port,
-            path=args.mount,
-            log_level=args.log_level,
-        )
-    elif args.transport == "streamable-http":
-        mcp.run(
-            transport="http",
-            host=args.bind,
-            port=args.port,
-            path=args.mount,
-            log_level=args.log_level,
-        )
-    else:
-        raise ValueError(f"Unsupported transport: {args.transport}")
+        if args.transport == "stdio":
+            await mcp.run_async(transport="stdio")
+        elif args.transport == "sse":
+            await mcp.run_async(
+                transport="sse",
+                host=args.bind,
+                port=args.port,
+                path=args.mount,
+                log_level=args.log_level,
+            )
+        elif args.transport == "streamable-http":
+            await mcp.run_async(
+                transport="http",
+                host=args.bind,
+                port=args.port,
+                path=args.mount,
+                log_level=args.log_level,
+            )
+        else:
+            raise ValueError(f"Unsupported transport: {args.transport}")
+    asyncio.run(run())
