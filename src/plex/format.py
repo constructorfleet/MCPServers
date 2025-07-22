@@ -1,12 +1,12 @@
 from plexapi.client import PlexClient as PlexAPIClient
-from plex.server import logger
-
+import logging
 
 from plexapi.base import PlexSession as PlexAPISession
 from plexapi.utils import toJson
 
-
 import json
+
+logger = logging.getLogger(__name__)
 
 
 def format_movie(movie) -> str:

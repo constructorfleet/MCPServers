@@ -8,21 +8,19 @@ to handle non-blocking I/O and to provide informative error messages.
 """
 import argparse
 import asyncio
-import itertools
 from enum import StrEnum
 import logging
 
 import os
 
 # --- Import Statements ---
-from typing import Annotated, Any, List, Optional, Callable
+from typing import Annotated, List, Optional, Callable
 from base import run_server, mcp
 from starlette.requests import Request
 from starlette.responses import Response
 from mcp.types import ToolAnnotations
 from plex.format import format_client, format_episode, format_movie, format_playlist, format_session
 from plex.types import MediaType, MovieSearchParams, PlexClient, ShowSearchParams
-from plex.utils import from_json, initialize_pickle, to_json
 from plexapi.base import PlexSession as PlexAPISession
 from plexapi.exceptions import NotFound
 from plexapi.library import MovieSection, ShowSection
@@ -32,7 +30,6 @@ from plexapi.video import Movie, Episode
 from pydantic import Field
 from rapidfuzz import process
 from rapidfuzz.fuzz import token_set_ratio
-import aiofiles
 try:
     import http.client as http_client
 except ImportError:
