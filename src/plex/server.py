@@ -1914,7 +1914,7 @@ def add_plex_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
     return parser
 
-def on_run_server(args):
+async def on_run_server(args):
     if not os.environ.get("PLEX_SERVER_URL"):
         if not args.plex_url:
             raise ValueError("Plex server URL must be provided via --plex-url or PLEX_SERVER_URL environment variable.")
@@ -1927,7 +1927,7 @@ def on_run_server(args):
     PlexClient(
         os.environ["PLEX_SERVER_URL"], os.environ["PLEX_TOKEN"]
     )  # Initialize singleton
-    asyncio.run(get_plex_server())
+    await get_plex_server()
     # if os.path.exists(os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json")):
     #     with open(os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json"), "r") as f:
     #         global media_cache
