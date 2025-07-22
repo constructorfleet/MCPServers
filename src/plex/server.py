@@ -34,7 +34,7 @@ try:
     import http.client as http_client
 except ImportError:
     # Python 2
-    import httplib as http_client
+    import httplib as http_client # type: ignore
 http_client.HTTPConnection.debuglevel = 1
 
 # You must initialize logging, otherwise you'll not see debug output.
@@ -1104,16 +1104,18 @@ async def set_client_subtitles(
         session: PlexAPISession = next((s for s in sessions if s.player.machineIdentifier == machine_identifier), None) # type: ignore
         if not session:
             return f"ERROR: No active session found for client '{client.title}'."
-        if not session.key:
+        source = session.source()
+        if not source:
             return f"ERROR: No session key found for client '{client.title}'."
         if not subtitles_on:
             client.setSubtitleStream(-1)
             return f"Subtitles disabled on client '{client.title}'."
-        items = plex.fetchItems(session.key)
-        logger.info("Found %d media items in session on client '%s'.", len(items), client.title)
-        if not items:
+        if not isinstance(source, list):
+            source = [source]
+        logger.info("Found %d media items in session on client '%s'.", len(source), client.title)
+        if not source:
             return f"ERROR: No media items found for session on client '{client.title}'."
-        for _, item in enumerate(items):
+        for _, item in enumerate(source):
             if not item.media or not item.media[0].parts:
                 return f"ERROR: No media found for item  session on client '{client.title}'."
             for _, part in enumerate(item.media[0].parts):
@@ -1674,6 +1676,7 @@ async def get_movie_recommendations(
     # if limit and len(movies) > limit:
     #     results.append(f"\n... and {len(movies)-limit} more results.")
     logger.info("Returning %s.", "\n---\n".join(results))
+    return "\n---\n".join(results) if results else "No matching movies found."
 
 @mcp.tool(
     name="get_show_recommendations",

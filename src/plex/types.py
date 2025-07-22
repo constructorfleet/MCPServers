@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Dict
+import os
+from typing import Any, Dict, Optional
 import logging
 
 from plexapi.exceptions import Unauthorized
