@@ -358,7 +358,7 @@ async def search_movies(
         A formatted string of up to 5 matching movies (with a count of any additional results),
         or an error message if the search fails or no movies are found.
     """
-
+    similar_movie = None
     try:
         plex = await get_plex_server()
         library_section = movie_section(plex)
@@ -413,7 +413,14 @@ async def search_movies(
     results: List[str] = []
     # Validate the limit parameter
     limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
-    sorted_movies = sort_plex_objects_by_similarity(movies, filters)
+    sorted_movies = sort_plex_objects_by_similarity(
+        [
+            m
+            for m in movies
+            if similar_movie is None or m.ratingKey != similar_movie.ratingKey
+        ],
+        filters,
+    )
     for i, m in enumerate(sorted_movies[:limit], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
@@ -1709,7 +1716,12 @@ async def get_movie_recommendations(
     results: List[str] = []
     # Validate the limit parameter
     limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
-    sorted_movies = sort_plex_objects_by_similarity(movies, filters)
+    sorted_movies = sort_plex_objects_by_similarity([
+        m
+        for m
+        in movies
+        if similar_movie is None or m.ratingKey != similar_movie.ratingKey
+    ], filters)
     for i, m in enumerate(sorted_movies[:limit], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
