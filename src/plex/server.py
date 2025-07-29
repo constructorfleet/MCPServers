@@ -383,7 +383,7 @@ async def search_movies(
     results: List[str] = []
     # Validate the limit parameter
     limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
-    sorted_movies = sort_plex_objects_by_similarity(movies, params)
+    sorted_movies = sort_plex_objects_by_similarity(movies, filters)
     for i, m in enumerate(sorted_movies[:limit], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
@@ -1590,10 +1590,10 @@ async def get_movie_recommendations(
             examples=[True, False],
         ),
     ] = None,
-    similar_movie_key: Annotated[
+    like_movie_rating_key: Annotated[
         Optional[str],
         Field(
-            description="The key of the movie to retrieve recommendations for.",
+            description="The rating key of the movie to base recommendations.",
             default=None,
             examples=["12345", "67890"],
         ),
@@ -1611,7 +1611,7 @@ async def get_movie_recommendations(
     Get recommendations for movies based on various filters.
 
     Parameters:
-        similar_movie_key (str): The key of the movie to retrieve similar movies for.
+        like_movie_rating_key (str): The key of the movie to retrieve similar movies for.
         title (str): Title or substring to match.
         year (int): Release year to filter by.
         director (str): Director name to filter by.
@@ -1640,10 +1640,10 @@ async def get_movie_recommendations(
         return "No movies found."
 
     logger.info("Found %d movies", len(movies))
-    if similar_movie_key:
-        similar_movie = next((m for m in movies if m.ratingKey == similar_movie_key), None)
+    if like_movie_rating_key:
+        similar_movie = next((m for m in movies if m.ratingKey == like_movie_rating_key), None)
         if not similar_movie:
-            return f"ERROR: Movie with key {similar_movie_key} not found."
+            return f"ERROR: Movie with key {like_movie_rating_key} not found."
         params = MovieSearchParams(
             title if title else similar_movie.title,
             year if year else similar_movie.year,
@@ -1803,10 +1803,10 @@ async def get_show_recommendations(
             examples=[2020, 2021, 2022],
         ),
     ] = None,
-    similar_show_key: Annotated[
+    like_show_rating_key: Annotated[
         Optional[str],
         Field(
-            description="The key of the show or episode to retrieve recommendations for.",
+            description="The key of the show or episode to base recommendations on.",
             default=None,
             examples=["12345", "67890"],
         ),
@@ -1824,7 +1824,7 @@ async def get_show_recommendations(
     Get recommendations for show based on various filters.
 
     Parameters:
-        similar_show_key (Optional[str]): The key of the show or episode to retrieve recommendations for.
+        like_show_rating_key (Optional[str]): The key of the show or episode to retrieve recommendations for.
         episode_title (Optional[str]): Episode title or substring to match.
         episode_year (Optional[int]): Episode release year to filter by.
         show_title (Optional[str]): Title or substring of the show to match.
@@ -1858,10 +1858,10 @@ async def get_show_recommendations(
         return "No episodes found."
     logger.info("Found %d episodes", len(episodes))
 
-    if similar_show_key:
-        similar_show = next((m for m in episodes if m.ratingKey == similar_show_key), None)
+    if like_show_rating_key:
+        similar_show = next((m for m in episodes if m.ratingKey == like_show_rating_key), None)
         if not similar_show:
-            return f"ERROR: Show with key {similar_show_key} not found."
+            return f"ERROR: Show with key {like_show_rating_key} not found."
         params = ShowSearchParams(
             show_title if show_title else similar_show.title,
             show_year if show_year else similar_show.year,
