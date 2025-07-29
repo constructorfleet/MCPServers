@@ -91,7 +91,9 @@ def format_session(session: PlexAPISession) -> str:
     logger.error(json.dumps(toJson(source), indent=2))
     return (
         f"User: {session.user.username}\n"
-        f"Media: {format_movie(source) if hasattr(source, 'grandparentRatingKey') not in source else format_episode(source)}\n"
+        "Media: {\n"
+        f"{format_episode(source) if getattr(source, 'type', None) == 'episode' else format_movie(source)}\n"
+        "}\n"
     )
 
 
