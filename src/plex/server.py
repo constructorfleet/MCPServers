@@ -1980,7 +1980,7 @@ async def on_run_server(args):
         os.environ["PLEX_SERVER_URL"], os.environ["PLEX_TOKEN"]
     )  # Initialize singleton
     server = await get_plex_server()
-    movie = server.fetchItem("4495")
+    movie = server.fetchItem(4495)
     logger.info(toJson(movie.similar)) # type: ignore
     # if os.path.exists(os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json")):
     #     with open(os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json"), "r") as f:
