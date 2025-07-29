@@ -319,6 +319,14 @@ async def search_movies(
             examples=[True, False],
         ),
     ] = None,
+    like_movie_rating_key: Annotated[
+        Optional[str],
+        Field(
+            description="The rating key of the movie to base search on.",
+            default=None,
+            examples=["12345", "67890"],
+        ),
+    ] = None,
     limit: Annotated[
         Optional[int],
         Field(
@@ -344,12 +352,14 @@ async def search_movies(
         watched: Optional boolean; True returns only watched movies, False only unwatched.
         min_duration: Optional minimum duration in minutes.
         max_duration: Optional maximum duration in minutes.
+        like_movie_rating_key: Optional rating key of a movie to base the search on.
 
     Returns:
         A formatted string of up to 5 matching movies (with a count of any additional results),
         or an error message if the search fails or no movies are found.
     """
 
+    
     params = MovieSearchParams(
         title,
         year,
@@ -370,6 +380,37 @@ async def search_movies(
         library_section = movie_section(plex)
         if not library_section:
             return "ERROR: No movie section found in your Plex library."
+        if like_movie_rating_key:
+            all_movies = await asyncio.to_thread(library_section.all)
+            similar_movie = next((m for m in all_movies if m.ratingKey == like_movie_rating_key), None)
+            if not similar_movie:
+                return f"ERROR: Movie with key {like_movie_rating_key} not found."
+            params = MovieSearchParams(
+                title if title else similar_movie.title,
+                year if year else similar_movie.year,
+                director if director else similar_movie.director,
+                studio if studio else similar_movie.studio,
+                genre if genre else similar_movie.genre,
+                actor if actor else similar_movie.actor,
+                rating if rating else similar_movie.rating,
+                country if country else similar_movie.country,
+                language if language else similar_movie.language,
+                watched if watched else similar_movie.watched,
+            )
+        else:
+            params = MovieSearchParams(
+                title,
+                year,
+                director,
+                studio,
+                genre,
+                actor,
+                rating,
+                country,
+                language,
+                watched,
+            )
+        filters = params.to_filters()
         movies = await asyncio.to_thread(library_section.search, **filters)
     except Exception as e:
         logger.exception("search_movies failed connecting to Plex")
@@ -1851,7 +1892,7 @@ async def get_show_recommendations(
             return "ERROR: No movie section found in your Plex library."
         episodes = await asyncio.to_thread(library_section.all)
     except Exception as e:
-        logger.exception("search_movies failed connecting to Plex")
+        logger.exception("get_show_recommendations failed connecting to Plex")
         return f"ERROR: Could not search Plex. {e}"
 
     if not episodes:
