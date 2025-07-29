@@ -378,14 +378,10 @@ async def search_movies(
                 f"Found similar movie: {similar_movie.title} ({[format_media(m) for m in similar_movie]})",
             )
             params = MovieSearchParams(
-                title if title else similar_movie.title,
-                year if year else similar_movie.year,
-                director if director else similar_movie.directors,
-                studio if studio else similar_movie.studio,
-                genre if genre else similar_movie.genres,
-                actor if actor else similar_movie.actors,
-                rating if rating else similar_movie.rating,
-                country if country else similar_movie.countries,
+                director=director if director else similar_movie.directors,
+                genre=genre if genre else similar_movie.genres,
+                actor=actor if actor else similar_movie.actors,
+                summary=similar_movie.summary,
             )
         else:
             params = MovieSearchParams(
@@ -1979,9 +1975,7 @@ async def on_run_server(args):
     PlexClient(
         os.environ["PLEX_SERVER_URL"], os.environ["PLEX_TOKEN"]
     )  # Initialize singleton
-    server = await get_plex_server()
-    movie = server.fetchItem(4495)
-    logger.info(toJson(movie.similar)) # type: ignore
+    await get_plex_server()
     # if os.path.exists(os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json")):
     #     with open(os.path.join(os.environ.get("DATA_DIR", "."), "plex_cache.json"), "r") as f:
     #         global media_cache

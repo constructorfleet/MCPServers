@@ -94,6 +94,7 @@ class MovieSearchParams:
     country: Optional[str] = None
     language: Optional[str] = None
     watched: Optional[bool] = None  # True=only watched, False=only unwatched
+    summary: Optional[str] = None
 
     def to_filters(self) -> Dict[str, Any]:
         FIELD_MAP = {
@@ -107,6 +108,7 @@ class MovieSearchParams:
             "country": "countries",
             "language": "audioLanguage",
             "watched": "unwatched",
+            "summary": "summary",
         }
 
         filters: Dict[str, Any] = {"libtype": "movie"}
