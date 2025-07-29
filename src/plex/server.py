@@ -161,13 +161,13 @@ async def health(request: Request) -> Response:
 
 # --- Tool Methods ---
 @mcp.tool(
-    name="search_media",
-    description="'Smart' search for movies, shows, episodes, and more across the entire Plex library.",
+    name="fallback_search",
+    description="A fallback search for movies, shows, episodes, and more across the entire Plex library when other searches fail.",
     annotations=ToolAnnotations(
         title="Media Smart Search",
-    )
+    ),
 )
-async def search_media(
+async def fallback_search(
     query: Annotated[
         str,
         Field(
