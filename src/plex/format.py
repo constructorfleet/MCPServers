@@ -115,8 +115,10 @@ def format_media(video: PlexAPIVideo) -> str:
         A formatted string containing video details.
     """
     logger.error(json.dumps(toJson(video), indent=2))
+    is_movie = (video['type'] if isinstance(video, dict) else getattr(video, "type", None)) == "movie"
+    logger.error(f"is_movie: {is_movie}")
     return (
-        f"{format_episode(video) if getattr(video, 'type', None) == 'episode' else format_movie(video)}\n"
+        f"{format_episode(video) if not is_movie else format_movie(video)}\n"
     )
 
 
