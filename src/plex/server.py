@@ -377,14 +377,13 @@ async def search_movies(
             params = MovieSearchParams(
                 title if title else similar_movie.title,
                 year if year else similar_movie.year,
-                director if director else similar_movie.director,
+                director if director else similar_movie.directors,
                 studio if studio else similar_movie.studio,
-                genre if genre else similar_movie.genre,
-                actor if actor else similar_movie.actor,
+                genre if genre else similar_movie.genres,
+                actor if actor else similar_movie.actors,
                 rating if rating else similar_movie.rating,
-                country if country else similar_movie.country,
-                language if language else similar_movie.language,
-                watched if watched else similar_movie.watched,
+                country if country else similar_movie.countries,
+                language if language else similar_movie.audioLanguage,
             )
         else:
             params = MovieSearchParams(
@@ -1690,14 +1689,13 @@ async def get_movie_recommendations(
         params = MovieSearchParams(
             title if title else similar_movie.title,
             year if year else similar_movie.year,
-            director if director else similar_movie.director,
+            director if director else similar_movie.directors,
             studio if studio else similar_movie.studio,
-            genre if genre else similar_movie.genre,
-            actor if actor else similar_movie.actor,
+            genre if genre else similar_movie.genres,
+            actor if actor else similar_movie.actors,
             rating if rating else similar_movie.rating,
-            country if country else similar_movie.country,
-            language if language else similar_movie.language,
-            watched if watched else similar_movie.watched,
+            country if country else similar_movie.countries,
+            language if language else similar_movie.audioLanguage,
         )
     else:
         params = MovieSearchParams(

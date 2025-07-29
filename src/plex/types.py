@@ -99,12 +99,12 @@ class MovieSearchParams:
         FIELD_MAP = {
             "title": "title",
             "year": "year",
-            "director": "director",
+            "director": "directors",
             "studio": "studio",
-            "genre": "genre",
-            "actor": "actor",
+            "genre": "genres",
+            "actor": "actors",
             "rating": "contentRating",
-            "country": "country",
+            "country": "countries",
             "language": "audioLanguage",
             "watched": "unwatched",
         }
