@@ -20,16 +20,24 @@ def format_movie(movie) -> str:
     Returns:
         A formatted string containing movie details.
     """
-    title = getattr(movie, "title", "Unknown Title")
-    year = getattr(movie, "year", "Unknown Year")
-    summary = getattr(movie, "summary", "No summary available")
+    title = movie['title'] if isinstance(movie, dict) else getattr(movie, "title", "Unknown Title")
+    year = movie['year'] if isinstance(movie, dict) else getattr(movie, "year", "Unknown Year")
+    summary = movie['summary'] if isinstance(movie, dict) else getattr(movie, "summary", "No summary available")
     duration = (
-        getattr(movie, "duration", 0) // 60000 if hasattr(movie, "duration") else 0
+        movie['duration'] // 60000 if isinstance(movie, dict) else getattr(movie, "duration", 0) // 60000
     )
-    rating = getattr(movie, "rating", "Unrated")
-    studio = getattr(movie, "studio", "Unknown Studio")
-    directors = [director.tag for director in getattr(movie, "directors", [])[:3]]
-    actors = [role.tag for role in getattr(movie, "roles", [])[:5]]
+    rating = movie['rating'] if isinstance(movie, dict) else getattr(movie, "rating", "Unrated")
+    studio = movie['studio'] if isinstance(movie, dict) else getattr(movie, "studio", "Unknown Studio")
+    directors = [
+        (director["tag"] if isinstance(director, dict) else director.tag)
+        for director
+        in (movie['directors'] if isinstance(movie, dict) else getattr(movie, "directors", []))[:3]
+    ]
+    actors = [
+        (role["tag"] if isinstance(role, dict) else role.tag)
+        for role
+        in (movie['roles'] if isinstance(movie, dict) else getattr(movie, "roles", []))[:5]
+    ]
 
     return (
         f"Title: {title} ({year})\n"
