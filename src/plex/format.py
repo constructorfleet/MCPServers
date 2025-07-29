@@ -20,23 +20,25 @@ def format_movie(movie) -> str:
     Returns:
         A formatted string containing movie details.
     """
-    title = movie['title'] if isinstance(movie, dict) else getattr(movie, "title", "Unknown Title")
-    year = movie['year'] if isinstance(movie, dict) else getattr(movie, "year", "Unknown Year")
-    summary = movie['summary'] if isinstance(movie, dict) else getattr(movie, "summary", "No summary available")
+    if not isinstance(movie, dict):
+        movie = json.loads(toJson(movie))
+    title = movie['title']
+    year = movie['year']
+    summary = movie['summary']
     duration = (
-        movie['duration'] // 60000 if isinstance(movie, dict) else getattr(movie, "duration", 0) // 60000
+        movie['duration'] // 60000
     )
-    rating = movie['rating'] if isinstance(movie, dict) else getattr(movie, "rating", "Unrated")
-    studio = movie['studio'] if isinstance(movie, dict) else getattr(movie, "studio", "Unknown Studio")
+    rating = movie['rating']
+    studio = movie['studio']
     directors = [
-        (director["tag"] if isinstance(director, dict) else director.tag)
+        director["tag"]
         for director
-        in (movie['directors'] if isinstance(movie, dict) else getattr(movie, "directors", []))[:3]
+        in movie['directors']
     ]
     actors = [
-        (role["tag"] if isinstance(role, dict) else role.tag)
+        role["tag"]
         for role
-        in (movie['roles'] if isinstance(movie, dict) else getattr(movie, "roles", []))[:5]
+        in movie['roles']
     ]
 
     return (

@@ -373,7 +373,7 @@ async def search_movies(
     )
     for i, m in enumerate(sorted_movies[:limit], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(json.loads(toJson(m)))}")  # type: ignore
 
     # if limit and len(movies) > limit:
     #     results.append(f"\n... and {len(movies)-limit} more results.")
