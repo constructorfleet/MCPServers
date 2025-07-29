@@ -328,7 +328,7 @@ async def search_movies(
             if not similar_movie:
                 return f"ERROR: Movie with key/title {similar_to} not found."
             logger.info(
-                f"Found similar movie: {similar_movie['title']} ({[format_media(m) for m in similar_movie]})",
+                f"Found similar movie: {similar_movie['title']} ({[format_movie(m) for m in similar_movie]})",
             )
             params = MovieSearchParams(
                 director=director if director else similar_movie['directors'],
@@ -350,7 +350,7 @@ async def search_movies(
                 watched,
             )
         filters = params.to_filters()
-        movies = await asyncio.to_thread(server.get_movies)
+        movies = server.get_movies()
     except Exception as e:
         logger.exception("search_movies failed connecting to Plex")
         return f"ERROR: Could not search Plex. {e}"
