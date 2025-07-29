@@ -19,7 +19,7 @@ from base import run_server, mcp
 from starlette.requests import Request
 from starlette.responses import Response
 from mcp.types import ToolAnnotations
-from plex.format import format_client, format_episode, format_movie, format_playlist, format_session
+from plex.format import format_client, format_episode, format_media, format_movie, format_playlist, format_session
 from plex.types import MediaType, MovieSearchParams, PlexClient, ShowSearchParams
 from plexapi.base import PlexSession as PlexAPISession
 from plexapi.exceptions import NotFound
@@ -218,7 +218,7 @@ async def search_media(
             break
         if not isinstance(m, Movie) and not isinstance(m, Episode):
             continue
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m) if isinstance(m, Movie) else format_episode(m)}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_media(m)}")  # type: ignore
 
     if len(media) > limit:
         results.append(f"\n... and {len(media)-limit} more results.")
