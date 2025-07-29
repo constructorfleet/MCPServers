@@ -374,6 +374,9 @@ async def search_movies(
                 similar_movie = all_movies[0] if all_movies else None
             if not similar_movie:
                 return f"ERROR: Movie with key/title {similar_to} not found."
+            logger.info(
+                f"Found similar movie: {similar_movie.title} ({[format_media(m) for m in similar_movie]})",
+            )
             params = MovieSearchParams(
                 title if title else similar_movie.title,
                 year if year else similar_movie.year,
@@ -383,7 +386,6 @@ async def search_movies(
                 actor if actor else similar_movie.actors,
                 rating if rating else similar_movie.rating,
                 country if country else similar_movie.countries,
-                language if language else similar_movie.audioLanguage,
             )
         else:
             params = MovieSearchParams(
@@ -395,7 +397,6 @@ async def search_movies(
                 actor,
                 rating,
                 country,
-                language,
                 watched,
             )
         filters = params.to_filters()
@@ -1695,7 +1696,6 @@ async def get_movie_recommendations(
             actor if actor else similar_movie.actors,
             rating if rating else similar_movie.rating,
             country if country else similar_movie.countries,
-            language if language else similar_movie.audioLanguage,
         )
     else:
         params = MovieSearchParams(
