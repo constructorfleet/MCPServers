@@ -3,6 +3,7 @@ import logging
 
 from plexapi.base import PlexSession as PlexAPISession
 from plexapi.utils import toJson
+from plexapi.video import Video as PlexAPIVideo
 
 import json
 
@@ -94,6 +95,20 @@ def format_session(session: PlexAPISession) -> str:
         "Media: {\n"
         f"{format_episode(source) if getattr(source, 'type', None) == 'episode' else format_movie(source)}\n"
         "}\n"
+    )
+
+
+def format_media(video: PlexAPIVideo) -> str:
+    """
+    Format a Plex video object into a human-readable string.
+    Parameters:
+        video: A Plex video object
+    Returns:
+        A formatted string containing video details.
+    """
+    logger.error(json.dumps(toJson(video), indent=2))
+    return (
+        f"{format_episode(video) if getattr(video, 'type', None) == 'episode' else format_movie(video)}\n"
     )
 
 
