@@ -1,27 +1,32 @@
-import jsonpickle
-from plexapi.server import PlexServer
-from plexapi.client import PlexClient
-from plexapi.base import PlexObject
+from rapidfuzz import process
+from rapidfuzz.fuzz import token_set_ratio
 
-def initialize_pickle(url: str):
-    class PlexJsonHandler(jsonpickle.handlers.BaseHandler):
-        def restore(self, obj):
-            pass
+import logging
+logger = logging.getLogger(__name__)
 
-        def flatten(self, obj, data):
-            # Fix url raise
-            if isinstance(obj, PlexClient):
-                setattr(obj, "_baseurl", url)
-            #remove methods, private fields etc
-            members = [attr for attr in dir(obj) if not callable(getattr(obj, attr)) and not attr.startswith("__") and not attr.startswith("_")]
-            for normal_field in members:
-                # we use context flatten - so its called handlers for given class
-                data[normal_field] = self.context.flatten(getattr(obj, normal_field), {})
-            return data
-    jsonpickle.handlers.registry.register(PlexObject, PlexJsonHandler, True)
+def recursive_get(s, key):
+    try:
+        if "." in key:
+            first, rest = key.split(".", 1)
+            return recursive_get(s.get(first, {}), rest)
+        else:
+            return s.get(key, None)
+    except Exception:
+        logger.error(f"Failed to get key '{key}' from object: {s}")
+        return s
 
-def to_json(obj):
-   return jsonpickle.encode(obj, unpicklable=False, make_refs=False)
+def object_similarity_score(obj, filter_dict):
+    score = 0
+    for key, value in filter_dict.items():
+        obj_value = recursive_get(obj, key)
+        if obj_value is None:
+            continue
+        score += token_set_ratio(str(obj_value), str(value))
+    return score
 
-def from_json(json):
-    return jsonpickle.decode(json)
+def sort_by_similarity(objects: list[dict], filter_dict: dict) -> list[dict]:
+    return sorted(
+        objects,
+        key=lambda obj: object_similarity_score(obj, filter_dict),
+        reverse=True
+    )

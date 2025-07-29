@@ -9,6 +9,7 @@ to handle non-blocking I/O and to provide informative error messages.
 import argparse
 import asyncio
 from enum import StrEnum
+import json
 import logging
 
 import os
@@ -28,9 +29,11 @@ from plexapi.client import PlexClient as PlexAPIClient
 from plexapi.server import PlexServer
 from plexapi.video import Movie, Episode
 from plexapi.utils import toJson
-from pydantic import Field
 from rapidfuzz import process
-from rapidfuzz.fuzz import token_set_ratio
+from pydantic import Field
+
+from plex.utils import sort_by_similarity
+
 try:
     import http.client as http_client
 except ImportError:
@@ -50,32 +53,6 @@ requests_log.propagate = True
 # --- Logging Setup ---
 logger = logging.getLogger(__name__)
 
-def recursive_get(s, key):
-    try:
-        if "." in key:
-            first, rest = key.split(".", 1)
-            return recursive_get(s.get(first, {}), rest)
-        else:
-            return s.get(key, None)
-    except Exception:
-        logger.error(f"Failed to get key '{key}' from object: {s}")
-        return s
-
-def object_similarity_score(obj, filter_dict):
-    score = 0
-    for key, value in filter_dict.items():
-        obj_value = recursive_get(obj, key)
-        if obj_value is None:
-            continue
-        score += token_set_ratio(str(obj_value), str(value))
-    return score
-
-def sort_plex_objects_by_similarity(objects, filter_dict):
-    return sorted(
-        objects,
-        key=lambda obj: object_similarity_score(toJson(obj), filter_dict),
-        reverse=True
-    )
 
 # --- Utility Formatting Functions ---
 def default_filter(client: PlexAPIClient) -> bool:
@@ -91,28 +68,6 @@ def match_client_name(requested_client: str, candidates: list[PlexAPIClient], fi
     choice, score, _ = process.extractOne(requested_client, list(candidate_map.keys()), score_cutoff=60)
     return candidate_map.get(choice, None) if score >= 60 else None
 
-def movie_section(server: PlexServer) -> Optional[MovieSection]:
-    """Get the first movie section from the Plex server."""
-    return next(
-        (
-            section
-            for section in server.library.sections()
-            if isinstance(section, MovieSection)
-        ),
-        None,
-    )
-
-
-def show_section(server: PlexServer) -> Optional[ShowSection]:
-    """Get the first show section from the Plex server."""
-    return next(
-        (
-            section
-            for section in server.library.sections()
-            if isinstance(section, ShowSection)
-        ),
-        None,
-    )
 
 # --- Global Singleton and Access Functions ---
 
@@ -166,6 +121,7 @@ async def health(request: Request) -> Response:
     annotations=ToolAnnotations(
         title="Media Smart Search",
     ),
+    enabled=False,
 )
 async def fallback_search(
     query: Annotated[
@@ -358,30 +314,27 @@ async def search_movies(
         A formatted string of up to 5 matching movies (with a count of any additional results),
         or an error message if the search fails or no movies are found.
     """
-    similar_movie = None
+    server = get_plex_client()
+    similar_movie: Optional[dict] = None
     try:
-        plex = await get_plex_server()
-        library_section = movie_section(plex)
-        if not library_section:
-            return "ERROR: No movie section found in your Plex library."
         if similar_to:
             if similar_to.isdigit():
-                similar_movie = library_section.fetchItem(int(similar_to))
+                similar_movie = server.get_movie(int(similar_to))
             else:
-                all_movies = await asyncio.to_thread(
-                    library_section.search(title=similar_to)
+                similar_movie = await asyncio.to_thread(
+                    server.find_movie_by_title,
+                    similar_to
                 )
-                similar_movie = all_movies[0] if all_movies else None
             if not similar_movie:
                 return f"ERROR: Movie with key/title {similar_to} not found."
             logger.info(
-                f"Found similar movie: {similar_movie.title} ({[format_media(m) for m in similar_movie]})",
+                f"Found similar movie: {similar_movie['title']} ({[format_media(m) for m in similar_movie]})",
             )
             params = MovieSearchParams(
-                director=director if director else similar_movie.directors,
-                genre=genre if genre else similar_movie.genres,
-                actor=actor if actor else similar_movie.actors,
-                summary=similar_movie.summary,
+                director=director if director else similar_movie['directors'],
+                genre=genre if genre else similar_movie['genres'],
+                actor=actor if actor else similar_movie['actors'],
+                summary=similar_movie['summary'],
             )
         else:
             params = MovieSearchParams(
@@ -397,7 +350,7 @@ async def search_movies(
                 watched,
             )
         filters = params.to_filters()
-        movies = await asyncio.to_thread(library_section.search, **filters)
+        movies = await asyncio.to_thread(server.get_movies)
     except Exception as e:
         logger.exception("search_movies failed connecting to Plex")
         return f"ERROR: Could not search Plex. {e}"
@@ -410,11 +363,11 @@ async def search_movies(
     results: List[str] = []
     # Validate the limit parameter
     limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
-    sorted_movies = sort_plex_objects_by_similarity(
+    sorted_movies = sort_by_similarity(
         [
-            m
+            json.loads(toJson(m))
             for m in movies
-            if similar_movie is None or m.ratingKey != similar_movie.ratingKey
+            if similar_movie is None or m.ratingKey != similar_movie['ratingKey']
         ],
         filters,
     )
@@ -455,16 +408,9 @@ async def get_movie_details(
     """
     logger.info("Fetching movie details for key '%s'", movie_key)
     try:
-        plex = await get_plex_server()
-    except Exception as e:
-        return f"ERROR: Could not connect to Plex server. {str(e)}"
-
-    try:
         key = int(movie_key)
-        library_section = movie_section(plex)
-        if not library_section:
-            return "ERROR: No movie section found in your Plex library."
-        movie = await asyncio.to_thread(library_section.fetchItem, key)  # type: ignore
+        server = get_plex_client()
+        movie = await asyncio.to_thread(server.get_movie, key)  # type: ignore
 
         if not movie:
             return f"No movie found with key {movie_key}."
@@ -477,328 +423,328 @@ async def get_movie_details(
         return f"ERROR: Failed to fetch movie details. {str(e)}"
 
 
-@mcp.tool(
-    name="get_new_movies",
-    description="Get a list of recently added movies in your Plex library.",
-    annotations=ToolAnnotations(
-        title="Get New Movies",
-    ),
-)
-async def get_new_movies() -> str:
-    """
-    Get list of recently added movies in your Plex library.
+# @mcp.tool(
+#     name="get_new_movies",
+#     description="Get a list of recently added movies in your Plex library.",
+#     annotations=ToolAnnotations(
+#         title="Get New Movies",
+#     ),
+# )
+# async def get_new_movies() -> str:
+#     """
+#     Get list of recently added movies in your Plex library.
 
-    Returns:
-        A formatted string with the new movie details or an error message.
-    """
-    try:
-        plex = await get_plex_server()
-    except Exception as e:
-        return f"ERROR: Could not connect to Plex server. {str(e)}"
+#     Returns:
+#         A formatted string with the new movie details or an error message.
+#     """
+#     try:
+#         plex = await get_plex_server()
+#     except Exception as e:
+#         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
-    try:
-        library_section = movie_section(plex)
-        if not library_section:
-            return "ERROR: No movie section found in your Plex library."
-        movies = await asyncio.to_thread(library_section.recentlyAdded, 10)  # type: ignore
+#     try:
+#         library_section = movie_section(plex)
+#         if not library_section:
+#             return "ERROR: No movie section found in your Plex library."
+#         movies = await asyncio.to_thread(library_section.recentlyAdded, 10)  # type: ignore
 
-        if not movies:
-            return "No new movies found in your Plex library."
-        results: List[str] = []
-        for i, m in enumerate(movies[:10], start=1):
-            results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
-        logger.info(("Returning %s new movies.", "\n---\n".join(results)))
-        return "\n---\n".join(results)
-    except Exception as e:
-        logger.exception("Failed to fetch new movie list.")
-        return f"ERROR: Failed to fetch new movie list. {str(e)}"
-
-
-@mcp.tool(
-    name="search_shows",
-    description="Search for shows or episodes in your Plex library using various filters.",
-    annotations=ToolAnnotations(
-        title="Search For Shows or Episodes",
-    ),
-)
-async def search_shows(
-    show_title: Annotated[
-        Optional[str],
-        Field(
-            description="Title or substring of the show to match",
-            examples=["Family Guy", "South Park", "3 body problem"],
-            default=None,
-        ),
-    ] = None,
-    show_year: Annotated[
-        Optional[int],
-        Field(
-            description="Show release year to filter by",
-            default=None,
-            examples=[1994, 2020, 1985],
-        ),
-    ] = None,
-    director: Annotated[
-        Optional[str],
-        Field(
-            description="Director name to filter by",
-            default=None,
-            examples=["Christopher Nolan", "James Cameron", "George Lucas"],
-        ),
-    ] = None,
-    studio: Annotated[
-        Optional[str],
-        Field(
-            description="Studio name to filter by",
-            default=None,
-            examples=["Warner Bros.", "20th Century Fox", "Universal Pictures"],
-        ),
-    ] = None,
-    genre: Annotated[
-        Optional[str],
-        Field(
-            description="Genre tag to filter by",
-            default=None,
-            examples=["Action", "Sci-Fi", "Drama"],
-        ),
-    ] = None,
-    actor: Annotated[
-        Optional[str],
-        Field(
-            description="Actor name to filter by",
-            default=None,
-            examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
-        ),
-    ] = None,
-    rating: Annotated[
-        Optional[str],
-        Field(
-            description="Rating to filter by (e.g., 'PG-13', 'R')",
-            default=None,
-            examples=["PG-13", "R", "G"],
-        ),
-    ] = None,
-    country: Annotated[
-        Optional[str],
-        Field(
-            description="Country of origin to filter by",
-            default=None,
-            examples=["USA", "UK", "France"],
-        ),
-    ] = None,
-    language: Annotated[
-        Optional[str],
-        Field(
-            description="Audio or subtitle language to filter by",
-            default=None,
-            examples=["English", "Spanish", "French"],
-        ),
-    ] = None,
-    watched: Annotated[
-        Optional[bool],
-        Field(
-            description="Filter by watched status; True for watched, False for unwatched",
-            default=None,
-            examples=[True, False],
-        ),
-    ] = None,
-    season: Annotated[
-        Optional[int],
-        Field(
-            description="Season number to filter by",
-            default=None,
-            examples=[1, 2, 3],
-        ),
-    ] = None,
-    episode: Annotated[
-        Optional[int],
-        Field(
-            description="Episode number to filter by",
-            default=None,
-            examples=[1, 2, 3],
-        ),
-    ] = None,
-    episode_title: Annotated[
-        Optional[str],
-        Field(
-            description="Episode title or substring to match",
-            default=None,
-            examples=["Pilot", "The End"],
-        ),
-    ] = None,
-    episode_year: Annotated[
-        Optional[int],
-        Field(
-            description="Episode release year to filter by",
-            default=None,
-            examples=[2020, 2021, 2022],
-        ),
-    ] = None,
-    limit: Annotated[
-        Optional[int],
-        Field(
-            description="Optionally limit the number of items returned.",
-            default=None,
-            examples=[None, 1, 5, 10],
-        )
-    ] = None,
-) -> str:
-    """
-    Search for movies in your Plex library using optional filters.
-
-    Parameters:
-        show_title: Optional show title or substring to match.
-        show_year: Optional show release year to filter by.
-        director: Optional director name to filter by.
-        studio: Optional studio name to filter by.
-        genre: Optional genre tag to filter by.
-        actor: Optional actor name to filter by.
-        rating: Optional rating (e.g., "PG-13") to filter by.
-        country: Optional country of origin to filter by.
-        language: Optional audio or subtitle language to filter by.
-        watched: Optional boolean; True returns only watched movies, False only unwatched.
-        season: Optional season number to filter by.
-        episode: Optional episode number to filter by.
-        episode_title: Optional episode title or substring to match.
-        episode_year: Optional episode release year to filter by.
+#         if not movies:
+#             return "No new movies found in your Plex library."
+#         results: List[str] = []
+#         for i, m in enumerate(movies[:10], start=1):
+#             results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
+#         logger.info(("Returning %s new movies.", "\n---\n".join(results)))
+#         return "\n---\n".join(results)
+#     except Exception as e:
+#         logger.exception("Failed to fetch new movie list.")
+#         return f"ERROR: Failed to fetch new movie list. {str(e)}"
 
 
-    Returns:
-        A formatted string of up to 5 matching shows (with a count of any additional results),
-        or an error message if the search fails or no movies are found.
-    """
+# @mcp.tool(
+#     name="search_shows",
+#     description="Search for shows or episodes in your Plex library using various filters.",
+#     annotations=ToolAnnotations(
+#         title="Search For Shows or Episodes",
+#     ),
+# )
+# async def search_shows(
+#     show_title: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Title or substring of the show to match",
+#             examples=["Family Guy", "South Park", "3 body problem"],
+#             default=None,
+#         ),
+#     ] = None,
+#     show_year: Annotated[
+#         Optional[int],
+#         Field(
+#             description="Show release year to filter by",
+#             default=None,
+#             examples=[1994, 2020, 1985],
+#         ),
+#     ] = None,
+#     director: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Director name to filter by",
+#             default=None,
+#             examples=["Christopher Nolan", "James Cameron", "George Lucas"],
+#         ),
+#     ] = None,
+#     studio: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Studio name to filter by",
+#             default=None,
+#             examples=["Warner Bros.", "20th Century Fox", "Universal Pictures"],
+#         ),
+#     ] = None,
+#     genre: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Genre tag to filter by",
+#             default=None,
+#             examples=["Action", "Sci-Fi", "Drama"],
+#         ),
+#     ] = None,
+#     actor: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Actor name to filter by",
+#             default=None,
+#             examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
+#         ),
+#     ] = None,
+#     rating: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Rating to filter by (e.g., 'PG-13', 'R')",
+#             default=None,
+#             examples=["PG-13", "R", "G"],
+#         ),
+#     ] = None,
+#     country: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Country of origin to filter by",
+#             default=None,
+#             examples=["USA", "UK", "France"],
+#         ),
+#     ] = None,
+#     language: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Audio or subtitle language to filter by",
+#             default=None,
+#             examples=["English", "Spanish", "French"],
+#         ),
+#     ] = None,
+#     watched: Annotated[
+#         Optional[bool],
+#         Field(
+#             description="Filter by watched status; True for watched, False for unwatched",
+#             default=None,
+#             examples=[True, False],
+#         ),
+#     ] = None,
+#     season: Annotated[
+#         Optional[int],
+#         Field(
+#             description="Season number to filter by",
+#             default=None,
+#             examples=[1, 2, 3],
+#         ),
+#     ] = None,
+#     episode: Annotated[
+#         Optional[int],
+#         Field(
+#             description="Episode number to filter by",
+#             default=None,
+#             examples=[1, 2, 3],
+#         ),
+#     ] = None,
+#     episode_title: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Episode title or substring to match",
+#             default=None,
+#             examples=["Pilot", "The End"],
+#         ),
+#     ] = None,
+#     episode_year: Annotated[
+#         Optional[int],
+#         Field(
+#             description="Episode release year to filter by",
+#             default=None,
+#             examples=[2020, 2021, 2022],
+#         ),
+#     ] = None,
+#     limit: Annotated[
+#         Optional[int],
+#         Field(
+#             description="Optionally limit the number of items returned.",
+#             default=None,
+#             examples=[None, 1, 5, 10],
+#         )
+#     ] = None,
+# ) -> str:
+#     """
+#     Search for movies in your Plex library using optional filters.
 
-    params = ShowSearchParams(
-        show_title,
-        show_year,
-        director,
-        studio,
-        genre,
-        actor,
-        rating,
-        country,
-        language,
-        watched,
-        season,
-        episode,
-        episode_title,
-        episode_year,
-    )
-    filters = params.to_filters()
-    logger.info("Searching Plex with filters: %r", filters)
-
-    try:
-        plex = await get_plex_server()
-        library_section = show_section(plex)
-        if not library_section:
-            return "ERROR: No show section found in your Plex library."
-        episodes = await asyncio.to_thread(library_section.search, **filters)
-    except Exception as e:
-        logger.exception("search_shows failed connecting to Plex")
-        return f"ERROR: Could not search Plex. {e}"
-
-    if not episodes:
-        logger.info("No shows found matching filters: %r", filters)
-        return f"No shows found matching filters {filters!r}."
-
-    logger.info("Found %d shows matching filters: %r", len(episodes), filters)
-    # Validate the limit parameter
-    limit = max(1, limit) if limit else len(episodes)  # Default to 5 if limit is 0 or negative
-    sorted_episodes = sort_plex_objects_by_similarity(episodes, params)
-    results: List[str] = []
-    for i, m in enumerate(sorted_episodes[:limit], start=1):
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
-
-    if len(episodes) > limit:
-        results.append(f"\n... and {len(episodes)-limit} more results.")
-
-    return "\n---\n".join(results)
+#     Parameters:
+#         show_title: Optional show title or substring to match.
+#         show_year: Optional show release year to filter by.
+#         director: Optional director name to filter by.
+#         studio: Optional studio name to filter by.
+#         genre: Optional genre tag to filter by.
+#         actor: Optional actor name to filter by.
+#         rating: Optional rating (e.g., "PG-13") to filter by.
+#         country: Optional country of origin to filter by.
+#         language: Optional audio or subtitle language to filter by.
+#         watched: Optional boolean; True returns only watched movies, False only unwatched.
+#         season: Optional season number to filter by.
+#         episode: Optional episode number to filter by.
+#         episode_title: Optional episode title or substring to match.
+#         episode_year: Optional episode release year to filter by.
 
 
-@mcp.tool(
-    name="get_episode_details",
-    description="Get detailed information about a specific episode identified by its key.",
-    annotations=ToolAnnotations(
-        title="Get Movie Details",
-    ),
-)
-async def get_episode_details(
-    episode_key: Annotated[
-        str,
-        Field(
-            description="The key identifying the episode to retrieve details for.",
-            examples=["12345", "67890"],
-        ),
-    ],
-) -> str:
-    """
-    Get detailed information about a specific episode.
+#     Returns:
+#         A formatted string of up to 5 matching shows (with a count of any additional results),
+#         or an error message if the search fails or no movies are found.
+#     """
 
-    Parameters:
-        episode_key (str): The key identifying the episode.
+#     params = ShowSearchParams(
+#         show_title,
+#         show_year,
+#         director,
+#         studio,
+#         genre,
+#         actor,
+#         rating,
+#         country,
+#         language,
+#         watched,
+#         season,
+#         episode,
+#         episode_title,
+#         episode_year,
+#     )
+#     filters = params.to_filters()
+#     logger.info("Searching Plex with filters: %r", filters)
 
-    Returns:
-        A formatted string with episode details or an error message.
-    """
-    logger.info("Fetching episode details for key '%s'", episode_key)
-    try:
-        plex = await get_plex_server()
-    except Exception as e:
-        return f"ERROR: Could not connect to Plex server. {str(e)}"
+#     try:
+#         plex = await get_plex_server()
+#         library_section = show_section(plex)
+#         if not library_section:
+#             return "ERROR: No show section found in your Plex library."
+#         episodes = await asyncio.to_thread(library_section.search, **filters)
+#     except Exception as e:
+#         logger.exception("search_shows failed connecting to Plex")
+#         return f"ERROR: Could not search Plex. {e}"
 
-    try:
-        key = int(episode_key)
-        library_section = show_section(plex)
-        if not library_section:
-            return "ERROR: No show section found in your Plex library."
-        episode = await asyncio.to_thread(library_section.fetchItem, f"/library/metadata/{key}")  # type: ignore
+#     if not episodes:
+#         logger.info("No shows found matching filters: %r", filters)
+#         return f"No shows found matching filters {filters!r}."
 
-        if not episode:
-            return f"No episode found with key {episode_key}."
-        logger.info("Found episode: %s", episode.title)
-        return format_episode(episode)  # type: ignore
-    except NotFound:
-        return f"ERROR: Episode with key {episode_key} not found."
-    except Exception as e:
-        logger.exception("Failed to fetch episode details for key '%s'", episode_key)
-        return f"ERROR: Failed to fetch episode details. {str(e)}"
+#     logger.info("Found %d shows matching filters: %r", len(episodes), filters)
+#     # Validate the limit parameter
+#     limit = max(1, limit) if limit else len(episodes)  # Default to 5 if limit is 0 or negative
+#     sorted_episodes = sort_plex_objects_by_similarity(episodes, params)
+#     results: List[str] = []
+#     for i, m in enumerate(sorted_episodes[:limit], start=1):
+#         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
+
+#     if len(episodes) > limit:
+#         results.append(f"\n... and {len(episodes)-limit} more results.")
+
+#     return "\n---\n".join(results)
 
 
-@mcp.tool(
-    name="get_new_shows",
-    description="Get a list of recently added episodes in your Plex library.",
-    annotations=ToolAnnotations(
-        title="Get New Shows",
-    ),
-)
-async def get_new_shows() -> str:
-    """
-    Get list of recently added episodes in your Plex library.
+# @mcp.tool(
+#     name="get_episode_details",
+#     description="Get detailed information about a specific episode identified by its key.",
+#     annotations=ToolAnnotations(
+#         title="Get Movie Details",
+#     ),
+# )
+# async def get_episode_details(
+#     episode_key: Annotated[
+#         str,
+#         Field(
+#             description="The key identifying the episode to retrieve details for.",
+#             examples=["12345", "67890"],
+#         ),
+#     ],
+# ) -> str:
+#     """
+#     Get detailed information about a specific episode.
 
-    Returns:
-        A formatted string with the new episodes details or an error message.
-    """
-    try:
-        plex = await get_plex_server()
-    except Exception as e:
-        return f"ERROR: Could not connect to Plex server. {str(e)}"
+#     Parameters:
+#         episode_key (str): The key identifying the episode.
 
-    try:
-        library_section = show_section(plex)
-        if not library_section:
-            return "ERROR: No show section found in your Plex library."
-        episodes = await asyncio.to_thread(library_section.recentlyAdded, 10)  # type: ignore
-        logger.info("Found %d new episodes.", len(episodes))
-        if not episodes:
-            return "No new episodes found in your Plex library."
-        results: List[str] = []
-        for i, m in enumerate(episodes[:10], start=1):
-            results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
-        logger.info("Returning %s new episodes.", "\n---\n".join(results))
-        return "\n---\n".join(results)
-    except Exception as e:
-        logger.exception("Failed to fetch new episode list.")
-        return f"ERROR: Failed to fetch new episode list. {str(e)}"
+#     Returns:
+#         A formatted string with episode details or an error message.
+#     """
+#     logger.info("Fetching episode details for key '%s'", episode_key)
+#     try:
+#         plex = await get_plex_server()
+#     except Exception as e:
+#         return f"ERROR: Could not connect to Plex server. {str(e)}"
+
+#     try:
+#         key = int(episode_key)
+#         library_section = show_section(plex)
+#         if not library_section:
+#             return "ERROR: No show section found in your Plex library."
+#         episode = await asyncio.to_thread(library_section.fetchItem, f"/library/metadata/{key}")  # type: ignore
+
+#         if not episode:
+#             return f"No episode found with key {episode_key}."
+#         logger.info("Found episode: %s", episode.title)
+#         return format_episode(episode)  # type: ignore
+#     except NotFound:
+#         return f"ERROR: Episode with key {episode_key} not found."
+#     except Exception as e:
+#         logger.exception("Failed to fetch episode details for key '%s'", episode_key)
+#         return f"ERROR: Failed to fetch episode details. {str(e)}"
+
+
+# @mcp.tool(
+#     name="get_new_shows",
+#     description="Get a list of recently added episodes in your Plex library.",
+#     annotations=ToolAnnotations(
+#         title="Get New Shows",
+#     ),
+# )
+# async def get_new_shows() -> str:
+#     """
+#     Get list of recently added episodes in your Plex library.
+
+#     Returns:
+#         A formatted string with the new episodes details or an error message.
+#     """
+#     try:
+#         plex = await get_plex_server()
+#     except Exception as e:
+#         return f"ERROR: Could not connect to Plex server. {str(e)}"
+
+#     try:
+#         library_section = show_section(plex)
+#         if not library_section:
+#             return "ERROR: No show section found in your Plex library."
+#         episodes = await asyncio.to_thread(library_section.recentlyAdded, 10)  # type: ignore
+#         logger.info("Found %d new episodes.", len(episodes))
+#         if not episodes:
+#             return "No new episodes found in your Plex library."
+#         results: List[str] = []
+#         for i, m in enumerate(episodes[:10], start=1):
+#             results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
+#         logger.info("Returning %s new episodes.", "\n---\n".join(results))
+#         return "\n---\n".join(results)
+#     except Exception as e:
+#         logger.exception("Failed to fetch new episode list.")
+#         return f"ERROR: Failed to fetch new episode list. {str(e)}"
 
 
 @mcp.tool(
@@ -1536,417 +1482,417 @@ async def get_movie_genres(
         logger.exception("Failed to fetch genres for movie with key '%s'", movie_key)
         return f"ERROR: Failed to fetch movie genres. {str(e)}"
 
-@mcp.tool(
-    name="get_movie_recommendations",
-    description="Get movie recommendations.",
-    annotations=ToolAnnotations(
-        title="Get Movie Recommendations",
-    ),
-)
-async def get_movie_recommendations(
-    title: Annotated[
-        Optional[str],
-        Field(
-            description="Title or substring to match",
-            examples=["Inception", "Terminator", "Star Wars"],
-            default=None,
-        ),
-    ] = None,
-    year: Annotated[
-        Optional[int],
-        Field(
-            description="Release year to filter by",
-            default=None,
-            examples=[1994, 2020, 1985],
-        ),
-    ] = None,
-    director: Annotated[
-        Optional[str],
-        Field(
-            description="Director name to filter by",
-            default=None,
-            examples=["Christopher Nolan", "James Cameron", "George Lucas"],
-        ),
-    ] = None,
-    studio: Annotated[
-        Optional[str],
-        Field(
-            description="Studio name to filter by",
-            default=None,
-            examples=["Warner Bros.", "20th Century Fox", "Universal Pictures"],
-        ),
-    ] = None,
-    genre: Annotated[
-        Optional[str],
-        Field(
-            description="Genre tag to filter by",
-            default=None,
-            examples=["Action", "Sci-Fi", "Drama"],
-        ),
-    ] = None,
-    actor: Annotated[
-        Optional[str],
-        Field(
-            description="Actor name to filter by",
-            default=None,
-            examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
-        ),
-    ] = None,
-    rating: Annotated[
-        Optional[str],
-        Field(
-            description="Rating to filter by (e.g., 'PG-13', 'R')",
-            default=None,
-            examples=["PG-13", "R", "G"],
-        ),
-    ] = None,
-    country: Annotated[
-        Optional[str],
-        Field(
-            description="Country of origin to filter by",
-            default=None,
-            examples=["USA", "UK", "France"],
-        ),
-    ] = None,
-    language: Annotated[
-        Optional[str],
-        Field(
-            description="Audio or subtitle language to filter by",
-            default=None,
-            examples=["English", "Spanish", "French"],
-        ),
-    ] = None,
-    watched: Annotated[
-        Optional[bool],
-        Field(
-            description="Filter by watched status; True for watched, False for unwatched",
-            default=None,
-            examples=[True, False],
-        ),
-    ] = None,
-    similar_to: Annotated[
-        Optional[str],
-        Field(
-            description="The rating key or title of the movie to base recommendations.",
-            default=None,
-            examples=["12345", "67890"],
-        ),
-    ] = None,
-    limit: Annotated[
-        Optional[int],
-        Field(
-            description="Maximum number of recommendations to return",
-            default=10,
-            examples=[5, 10, 20],
-        ),
-    ] = 10,
-) -> str:
-    """
-    Get recommendations for movies based on various filters.
+# @mcp.tool(
+#     name="get_movie_recommendations",
+#     description="Get movie recommendations.",
+#     annotations=ToolAnnotations(
+#         title="Get Movie Recommendations",
+#     ),
+# )
+# async def get_movie_recommendations(
+#     title: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Title or substring to match",
+#             examples=["Inception", "Terminator", "Star Wars"],
+#             default=None,
+#         ),
+#     ] = None,
+#     year: Annotated[
+#         Optional[int],
+#         Field(
+#             description="Release year to filter by",
+#             default=None,
+#             examples=[1994, 2020, 1985],
+#         ),
+#     ] = None,
+#     director: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Director name to filter by",
+#             default=None,
+#             examples=["Christopher Nolan", "James Cameron", "George Lucas"],
+#         ),
+#     ] = None,
+#     studio: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Studio name to filter by",
+#             default=None,
+#             examples=["Warner Bros.", "20th Century Fox", "Universal Pictures"],
+#         ),
+#     ] = None,
+#     genre: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Genre tag to filter by",
+#             default=None,
+#             examples=["Action", "Sci-Fi", "Drama"],
+#         ),
+#     ] = None,
+#     actor: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Actor name to filter by",
+#             default=None,
+#             examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
+#         ),
+#     ] = None,
+#     rating: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Rating to filter by (e.g., 'PG-13', 'R')",
+#             default=None,
+#             examples=["PG-13", "R", "G"],
+#         ),
+#     ] = None,
+#     country: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Country of origin to filter by",
+#             default=None,
+#             examples=["USA", "UK", "France"],
+#         ),
+#     ] = None,
+#     language: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Audio or subtitle language to filter by",
+#             default=None,
+#             examples=["English", "Spanish", "French"],
+#         ),
+#     ] = None,
+#     watched: Annotated[
+#         Optional[bool],
+#         Field(
+#             description="Filter by watched status; True for watched, False for unwatched",
+#             default=None,
+#             examples=[True, False],
+#         ),
+#     ] = None,
+#     similar_to: Annotated[
+#         Optional[str],
+#         Field(
+#             description="The rating key or title of the movie to base recommendations.",
+#             default=None,
+#             examples=["12345", "67890"],
+#         ),
+#     ] = None,
+#     limit: Annotated[
+#         Optional[int],
+#         Field(
+#             description="Maximum number of recommendations to return",
+#             default=10,
+#             examples=[5, 10, 20],
+#         ),
+#     ] = 10,
+# ) -> str:
+#     """
+#     Get recommendations for movies based on various filters.
 
-    Parameters:
-        like_movie_rating_key (str): The key of the movie to retrieve similar movies for.
-        title (str): Title or substring to match.
-        year (int): Release year to filter by.
-        director (str): Director name to filter by.
-        studio (str): Studio name to filter by.
-        genre (str): Genre tag to filter by.
-        actor (str): Actor name to filter by.
-        rating (str): Rating to filter by (e.g., 'PG-13', 'R').
-        country (str): Country of origin to filter by.
-        language (str): Audio or subtitle language to filter by.
-        watched (bool): Filter by watched status; True for watched, False for unwatched.
+#     Parameters:
+#         like_movie_rating_key (str): The key of the movie to retrieve similar movies for.
+#         title (str): Title or substring to match.
+#         year (int): Release year to filter by.
+#         director (str): Director name to filter by.
+#         studio (str): Studio name to filter by.
+#         genre (str): Genre tag to filter by.
+#         actor (str): Actor name to filter by.
+#         rating (str): Rating to filter by (e.g., 'PG-13', 'R').
+#         country (str): Country of origin to filter by.
+#         language (str): Audio or subtitle language to filter by.
+#         watched (bool): Filter by watched status; True for watched, False for unwatched.
 
-    Returns:
-        A list of movie keys and titles that match the given filters sorted by relevance, or an error message.
-    """
-    similar_movie = None
-    try:
-        plex = await get_plex_server()
-        library_section = movie_section(plex)
-        if not library_section:
-            return "ERROR: No movie section found in your Plex library."
-        if similar_to:
-            if similar_to.isdigit():
-                similar_movie = library_section.get(similar_to)
-            else:
-                similar_movies = library_section.search(similar_to, libtype=MediaType.MOVIE)
-                similar_movie = similar_movies[0] if similar_movies else None
-            if not similar_movie:
-                return f"ERROR: Movie with key/title {similar_to} not found."
-        movies = await asyncio.to_thread(library_section.all)
-    except Exception as e:
-        logger.exception("search_movies failed connecting to Plex")
-        return f"ERROR: Could not search Plex. {e}"
+#     Returns:
+#         A list of movie keys and titles that match the given filters sorted by relevance, or an error message.
+#     """
+#     similar_movie = None
+#     try:
+#         plex = await get_plex_server()
+#         library_section = movie_section(plex)
+#         if not library_section:
+#             return "ERROR: No movie section found in your Plex library."
+#         if similar_to:
+#             if similar_to.isdigit():
+#                 similar_movie = library_section.get(similar_to)
+#             else:
+#                 similar_movies = library_section.search(similar_to, libtype=MediaType.MOVIE)
+#                 similar_movie = similar_movies[0] if similar_movies else None
+#             if not similar_movie:
+#                 return f"ERROR: Movie with key/title {similar_to} not found."
+#         movies = await asyncio.to_thread(library_section.all)
+#     except Exception as e:
+#         logger.exception("search_movies failed connecting to Plex")
+#         return f"ERROR: Could not search Plex. {e}"
 
-    if not movies:
-        return "No movies found."
+#     if not movies:
+#         return "No movies found."
 
-    logger.info("Found %d movies", len(movies))
-    if similar_movie:
-        params = MovieSearchParams(
-            title if title else similar_movie.title,
-            year if year else similar_movie.year,
-            director if director else similar_movie.directors,
-            studio if studio else similar_movie.studio,
-            genre if genre else similar_movie.genres,
-            actor if actor else similar_movie.actors,
-            rating if rating else similar_movie.rating,
-            country if country else similar_movie.countries,
-        )
-    else:
-        params = MovieSearchParams(
-            title,
-            year,
-            director,
-            studio,
-            genre,
-            actor,
-            rating,
-            country,
-            language,
-            watched,
-        )
-    filters = params.to_filters()
-    results: List[str] = []
-    # Validate the limit parameter
-    limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
-    sorted_movies = sort_plex_objects_by_similarity([
-        m
-        for m
-        in movies
-        if similar_movie is None or m.ratingKey != similar_movie.ratingKey
-    ], filters)
-    for i, m in enumerate(sorted_movies[:limit], start=1):
-        # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
+#     logger.info("Found %d movies", len(movies))
+#     if similar_movie:
+#         params = MovieSearchParams(
+#             title if title else similar_movie.title,
+#             year if year else similar_movie.year,
+#             director if director else similar_movie.directors,
+#             studio if studio else similar_movie.studio,
+#             genre if genre else similar_movie.genres,
+#             actor if actor else similar_movie.actors,
+#             rating if rating else similar_movie.rating,
+#             country if country else similar_movie.countries,
+#         )
+#     else:
+#         params = MovieSearchParams(
+#             title,
+#             year,
+#             director,
+#             studio,
+#             genre,
+#             actor,
+#             rating,
+#             country,
+#             language,
+#             watched,
+#         )
+#     filters = params.to_filters()
+#     results: List[str] = []
+#     # Validate the limit parameter
+#     limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
+#     sorted_movies = sort_plex_objects_by_similarity([
+#         m
+#         for m
+#         in movies
+#         if similar_movie is None or m.ratingKey != similar_movie.ratingKey
+#     ], filters)
+#     for i, m in enumerate(sorted_movies[:limit], start=1):
+#         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
+#         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
 
-    # if limit and len(movies) > limit:
-    #     results.append(f"\n... and {len(movies)-limit} more results.")
-    logger.info("Returning %s.", "\n---\n".join(results))
-    return "\n---\n".join(results) if results else "No matching movies found."
+#     # if limit and len(movies) > limit:
+#     #     results.append(f"\n... and {len(movies)-limit} more results.")
+#     logger.info("Returning %s.", "\n---\n".join(results))
+#     return "\n---\n".join(results) if results else "No matching movies found."
 
-@mcp.tool(
-    name="get_show_recommendations",
-    description="Get tv show recommendations.",
-    annotations=ToolAnnotations(
-        title="Get Show Recommendations",
-    ),
-)
-async def get_show_recommendations(
-    show_title: Annotated[
-        Optional[str],
-        Field(
-            description="Title or substring of the show to match",
-            examples=["Family Guy", "South Park", "3 body problem"],
-            default=None,
-        ),
-    ] = None,
-    show_year: Annotated[
-        Optional[int],
-        Field(
-            description="Show release year to filter by",
-            default=None,
-            examples=[1994, 2020, 1985],
-        ),
-    ] = None,
-    director: Annotated[
-        Optional[str],
-        Field(
-            description="Director name to filter by",
-            default=None,
-            examples=["Christopher Nolan", "James Cameron", "George Lucas"],
-        ),
-    ] = None,
-    studio: Annotated[
-        Optional[str],
-        Field(
-            description="Studio name to filter by",
-            default=None,
-            examples=["Warner Bros.", "20th Century Fox", "Universal Pictures"],
-        ),
-    ] = None,
-    genre: Annotated[
-        Optional[str],
-        Field(
-            description="Genre tag to filter by",
-            default=None,
-            examples=["Action", "Sci-Fi", "Drama"],
-        ),
-    ] = None,
-    actor: Annotated[
-        Optional[str],
-        Field(
-            description="Actor name to filter by",
-            default=None,
-            examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
-        ),
-    ] = None,
-    rating: Annotated[
-        Optional[str],
-        Field(
-            description="Rating to filter by (e.g., 'PG-13', 'R')",
-            default=None,
-            examples=["PG-13", "R", "G"],
-        ),
-    ] = None,
-    country: Annotated[
-        Optional[str],
-        Field(
-            description="Country of origin to filter by",
-            default=None,
-            examples=["USA", "UK", "France"],
-        ),
-    ] = None,
-    language: Annotated[
-        Optional[str],
-        Field(
-            description="Audio or subtitle language to filter by",
-            default=None,
-            examples=["English", "Spanish", "French"],
-        ),
-    ] = None,
-    watched: Annotated[
-        Optional[bool],
-        Field(
-            description="Filter by watched status; True for watched, False for unwatched",
-            default=None,
-            examples=[True, False],
-        ),
-    ] = None,
-    season: Annotated[
-        Optional[int],
-        Field(
-            description="Season number to filter by",
-            default=None,
-            examples=[1, 2, 3],
-        ),
-    ] = None,
-    episode: Annotated[
-        Optional[int],
-        Field(
-            description="Episode number to filter by",
-            default=None,
-            examples=[1, 2, 3],
-        ),
-    ] = None,
-    episode_title: Annotated[
-        Optional[str],
-        Field(
-            description="Episode title or substring to match",
-            default=None,
-            examples=["Pilot", "The End"],
-        ),
-    ] = None,
-    episode_year: Annotated[
-        Optional[int],
-        Field(
-            description="Episode release year to filter by",
-            default=None,
-            examples=[2020, 2021, 2022],
-        ),
-    ] = None,
-    like_show_rating_key: Annotated[
-        Optional[str],
-        Field(
-            description="The key of the show or episode to base recommendations on.",
-            default=None,
-            examples=["12345", "67890"],
-        ),
-    ] = None,
-    limit: Annotated[
-        Optional[int],
-        Field(
-            description="Limit the number of recommendations returned.",
-            default=10,
-            examples=[5, 10, 20],
-        ),
-    ] = 10,
-) -> str:
-    """
-    Get recommendations for show based on various filters.
+# @mcp.tool(
+#     name="get_show_recommendations",
+#     description="Get tv show recommendations.",
+#     annotations=ToolAnnotations(
+#         title="Get Show Recommendations",
+#     ),
+# )
+# async def get_show_recommendations(
+#     show_title: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Title or substring of the show to match",
+#             examples=["Family Guy", "South Park", "3 body problem"],
+#             default=None,
+#         ),
+#     ] = None,
+#     show_year: Annotated[
+#         Optional[int],
+#         Field(
+#             description="Show release year to filter by",
+#             default=None,
+#             examples=[1994, 2020, 1985],
+#         ),
+#     ] = None,
+#     director: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Director name to filter by",
+#             default=None,
+#             examples=["Christopher Nolan", "James Cameron", "George Lucas"],
+#         ),
+#     ] = None,
+#     studio: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Studio name to filter by",
+#             default=None,
+#             examples=["Warner Bros.", "20th Century Fox", "Universal Pictures"],
+#         ),
+#     ] = None,
+#     genre: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Genre tag to filter by",
+#             default=None,
+#             examples=["Action", "Sci-Fi", "Drama"],
+#         ),
+#     ] = None,
+#     actor: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Actor name to filter by",
+#             default=None,
+#             examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
+#         ),
+#     ] = None,
+#     rating: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Rating to filter by (e.g., 'PG-13', 'R')",
+#             default=None,
+#             examples=["PG-13", "R", "G"],
+#         ),
+#     ] = None,
+#     country: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Country of origin to filter by",
+#             default=None,
+#             examples=["USA", "UK", "France"],
+#         ),
+#     ] = None,
+#     language: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Audio or subtitle language to filter by",
+#             default=None,
+#             examples=["English", "Spanish", "French"],
+#         ),
+#     ] = None,
+#     watched: Annotated[
+#         Optional[bool],
+#         Field(
+#             description="Filter by watched status; True for watched, False for unwatched",
+#             default=None,
+#             examples=[True, False],
+#         ),
+#     ] = None,
+#     season: Annotated[
+#         Optional[int],
+#         Field(
+#             description="Season number to filter by",
+#             default=None,
+#             examples=[1, 2, 3],
+#         ),
+#     ] = None,
+#     episode: Annotated[
+#         Optional[int],
+#         Field(
+#             description="Episode number to filter by",
+#             default=None,
+#             examples=[1, 2, 3],
+#         ),
+#     ] = None,
+#     episode_title: Annotated[
+#         Optional[str],
+#         Field(
+#             description="Episode title or substring to match",
+#             default=None,
+#             examples=["Pilot", "The End"],
+#         ),
+#     ] = None,
+#     episode_year: Annotated[
+#         Optional[int],
+#         Field(
+#             description="Episode release year to filter by",
+#             default=None,
+#             examples=[2020, 2021, 2022],
+#         ),
+#     ] = None,
+#     like_show_rating_key: Annotated[
+#         Optional[str],
+#         Field(
+#             description="The key of the show or episode to base recommendations on.",
+#             default=None,
+#             examples=["12345", "67890"],
+#         ),
+#     ] = None,
+#     limit: Annotated[
+#         Optional[int],
+#         Field(
+#             description="Limit the number of recommendations returned.",
+#             default=10,
+#             examples=[5, 10, 20],
+#         ),
+#     ] = 10,
+# ) -> str:
+#     """
+#     Get recommendations for show based on various filters.
 
-    Parameters:
-        like_show_rating_key (Optional[str]): The key of the show or episode to retrieve recommendations for.
-        episode_title (Optional[str]): Episode title or substring to match.
-        episode_year (Optional[int]): Episode release year to filter by.
-        show_title (Optional[str]): Title or substring of the show to match.
-        show_year (Optional[int]): Show release year to filter by.
-        director (Optional[str]): Director name to filter by.
-        studio (Optional[str]): Studio name to filter by.
-        genre (Optional[str]): Genre tag to filter by.
-        actor (Optional[str]): Actor name to filter by.
-        rating (Optional[str]): Rating to filter by (e.g., 'PG-13', 'R').
-        country (Optional[str]): Country of origin to filter by.
-        language (Optional[str]): Language to filter by.
-        watched (Optional[bool]): Filter by watched status.
-        title (Optional[str]): Title or substring to match.
-        season (Optional[int]): Season number to filter by.
-        episode (Optional[int]): Episode number to filter by.
+#     Parameters:
+#         like_show_rating_key (Optional[str]): The key of the show or episode to retrieve recommendations for.
+#         episode_title (Optional[str]): Episode title or substring to match.
+#         episode_year (Optional[int]): Episode release year to filter by.
+#         show_title (Optional[str]): Title or substring of the show to match.
+#         show_year (Optional[int]): Show release year to filter by.
+#         director (Optional[str]): Director name to filter by.
+#         studio (Optional[str]): Studio name to filter by.
+#         genre (Optional[str]): Genre tag to filter by.
+#         actor (Optional[str]): Actor name to filter by.
+#         rating (Optional[str]): Rating to filter by (e.g., 'PG-13', 'R').
+#         country (Optional[str]): Country of origin to filter by.
+#         language (Optional[str]): Language to filter by.
+#         watched (Optional[bool]): Filter by watched status.
+#         title (Optional[str]): Title or substring to match.
+#         season (Optional[int]): Season number to filter by.
+#         episode (Optional[int]): Episode number to filter by.
 
-    Returns:
-        A list of movie keys and titles that match the given filters sorted by relevance, or an error message.
-    """
-    try:
-        plex = await get_plex_server()
-        library_section = show_section(plex)
-        if not library_section:
-            return "ERROR: No movie section found in your Plex library."
-        episodes = await asyncio.to_thread(library_section.all)
-    except Exception as e:
-        logger.exception("get_show_recommendations failed connecting to Plex")
-        return f"ERROR: Could not search Plex. {e}"
+#     Returns:
+#         A list of movie keys and titles that match the given filters sorted by relevance, or an error message.
+#     """
+#     try:
+#         plex = await get_plex_server()
+#         library_section = show_section(plex)
+#         if not library_section:
+#             return "ERROR: No movie section found in your Plex library."
+#         episodes = await asyncio.to_thread(library_section.all)
+#     except Exception as e:
+#         logger.exception("get_show_recommendations failed connecting to Plex")
+#         return f"ERROR: Could not search Plex. {e}"
 
-    if not episodes:
-        return "No episodes found."
-    logger.info("Found %d episodes", len(episodes))
+#     if not episodes:
+#         return "No episodes found."
+#     logger.info("Found %d episodes", len(episodes))
 
-    if like_show_rating_key:
-        similar_show = next((m for m in episodes if m.ratingKey == like_show_rating_key), None)
-        if not similar_show:
-            return f"ERROR: Show with key {like_show_rating_key} not found."
-        params = ShowSearchParams(
-            show_title if show_title else similar_show.title,
-            show_year if show_year else similar_show.year,
-            director if director else similar_show.director,
-            studio if studio else similar_show.studio,
-            genre if genre else similar_show.genre,
-            actor if actor else similar_show.actor,
-            rating if rating else similar_show.rating,
-            country if country else similar_show.country,
-            language if language else similar_show.language,
-            watched if watched else similar_show.watched,
-            season if season is not None else similar_show.season.index,
-            episode if episode is not None else similar_show.index,
-            episode_title if episode_title else similar_show.title,
-            episode_year if episode_year is not None else similar_show.year
-        )
-    else:
-        params = ShowSearchParams(
-            show_title,
-            show_year,
-            director,
-            studio,
-            genre,
-            actor,
-            rating,
-            country,
-            language,
-            watched,
-            season,
-            episode,
-            episode_title,
-            episode_year
-        )
-    filters = params.to_filters()
-    results: List[str] = []
-    # Validate the limit parameter
-    limit = max(1, limit) if limit else len(episodes)  # Default to 5 if limit is 0 or negative
-    sorted_episodes = sort_plex_objects_by_similarity(episodes, filters)
-    for i, m in enumerate(sorted_episodes[:limit], start=1):
-        # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
-    return "\n".join(results)
+#     if like_show_rating_key:
+#         similar_show = next((m for m in episodes if m.ratingKey == like_show_rating_key), None)
+#         if not similar_show:
+#             return f"ERROR: Show with key {like_show_rating_key} not found."
+#         params = ShowSearchParams(
+#             show_title if show_title else similar_show.title,
+#             show_year if show_year else similar_show.year,
+#             director if director else similar_show.director,
+#             studio if studio else similar_show.studio,
+#             genre if genre else similar_show.genre,
+#             actor if actor else similar_show.actor,
+#             rating if rating else similar_show.rating,
+#             country if country else similar_show.country,
+#             language if language else similar_show.language,
+#             watched if watched else similar_show.watched,
+#             season if season is not None else similar_show.season.index,
+#             episode if episode is not None else similar_show.index,
+#             episode_title if episode_title else similar_show.title,
+#             episode_year if episode_year is not None else similar_show.year
+#         )
+#     else:
+#         params = ShowSearchParams(
+#             show_title,
+#             show_year,
+#             director,
+#             studio,
+#             genre,
+#             actor,
+#             rating,
+#             country,
+#             language,
+#             watched,
+#             season,
+#             episode,
+#             episode_title,
+#             episode_year
+#         )
+#     filters = params.to_filters()
+#     results: List[str] = []
+#     # Validate the limit parameter
+#     limit = max(1, limit) if limit else len(episodes)  # Default to 5 if limit is 0 or negative
+#     sorted_episodes = sort_plex_objects_by_similarity(episodes, filters)
+#     for i, m in enumerate(sorted_episodes[:limit], start=1):
+#         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
+#         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
+#     return "\n".join(results)
 
 def add_plex_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(

@@ -1,11 +1,16 @@
 from dataclasses import dataclass
 from enum import StrEnum
+import json
 import os
 from typing import Any, Dict, Optional
 import logging
 
 from plexapi.exceptions import Unauthorized
 from plexapi.server import PlexServer
+from plexapi.library import MovieSection, ShowSection
+from plexapi.video import Movie as PlexAPIMovie, Episode as PlexAPIEpisode
+from plexapi.utils import toJson
+from plex.utils import sort_by_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -173,3 +178,64 @@ class PlexClient:
                 logger.exception("Error initializing Plex server: %s", exc)
                 raise Exception(f"Error initializing Plex server: {exc}") from exc
         return self._server
+
+    def movie_section(self) -> Optional[MovieSection]:
+        """Get the first movie section from the Plex server."""
+        server = self.get_server()
+        return next(
+            (
+                section
+                for section in server.library.sections()
+                if isinstance(section, MovieSection)
+            ),
+            None,
+        )
+
+    def get_movies(self) -> list[PlexAPIMovie]:
+        """
+        Fetch all movies from the Plex server.
+        Returns:
+            A list of movie objects.
+        """
+        movie_section = self.movie_section()
+        if movie_section:
+            return movie_section.all()
+        return []
+
+    def show_section(self) -> Optional[ShowSection]:
+        """Get the first show section from the Plex server."""
+        server = self.get_server()
+        return next(
+            (
+                section
+                for section in server.library.sections()
+                if isinstance(section, ShowSection)
+            ),
+            None,
+        )
+
+    def get_episodes(self) -> list[PlexAPIEpisode]:
+        """
+        Fetch all episodes from the Plex server.
+        Returns:
+            A list of episode objects.
+        """
+        show_section = self.show_section()
+        if show_section:
+            return show_section.all()
+        return []
+
+    def get_movie(self, rating_key: int) -> Optional[dict[str, Any]]:
+        """Get a movie by its rating key."""
+        server = self.get_server()
+        return json.loads(toJson(server.fetchItem(rating_key)))
+
+    def find_movie_by_title(self, title: str) -> Optional[dict[str, Any]]:
+        """Find a movie by its title."""
+        movies = self.get_movies()
+        return sort_by_similarity([json.loads(toJson(m)) for m in movies], {"title": title})[0] if movies else None
+
+    def get_episode(self, rating_key: int) -> Optional[PlexAPIEpisode]:
+        """Get an episode by its rating key."""
+        server = self.get_server()
+        return server.fetchItem(rating_key)
