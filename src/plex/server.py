@@ -27,6 +27,7 @@ from plexapi.library import MovieSection, ShowSection
 from plexapi.client import PlexClient as PlexAPIClient
 from plexapi.server import PlexServer
 from plexapi.video import Movie, Episode
+from plexapi.utils import toJson
 from pydantic import Field
 from rapidfuzz import process
 from rapidfuzz.fuzz import token_set_ratio
@@ -68,7 +69,7 @@ def object_similarity_score(obj, filter_dict):
 def sort_plex_objects_by_similarity(objects, filter_dict):
     return sorted(
         objects,
-        key=lambda obj: object_similarity_score(obj, filter_dict),
+        key=lambda obj: object_similarity_score(toJson(obj), filter_dict),
         reverse=True
     )
 
