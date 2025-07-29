@@ -319,10 +319,10 @@ async def search_movies(
             examples=[True, False],
         ),
     ] = None,
-    like_movie_rating_key: Annotated[
+    similar_to: Annotated[
         Optional[str],
         Field(
-            description="The rating key of the movie to base search on.",
+            description="The rating key or title of the movie to base search on.",
             default=None,
             examples=["12345", "67890"],
         ),
@@ -359,32 +359,21 @@ async def search_movies(
         or an error message if the search fails or no movies are found.
     """
 
-    
-    params = MovieSearchParams(
-        title,
-        year,
-        director,
-        studio,
-        genre,
-        actor,
-        rating,
-        country,
-        language,
-        watched,
-    )
-    filters = params.to_filters()
-    logger.info("Searching Plex with filters: %r", filters)
-
     try:
         plex = await get_plex_server()
         library_section = movie_section(plex)
         if not library_section:
             return "ERROR: No movie section found in your Plex library."
-        if like_movie_rating_key:
-            all_movies = await asyncio.to_thread(library_section.all)
-            similar_movie = next((m for m in all_movies if m.ratingKey == like_movie_rating_key), None)
+        if similar_to:
+            if similar_to.isdigit():
+                similar_movie = library_section.fetchItem(int(similar_to))
+            else:
+                all_movies = await asyncio.to_thread(
+                    library_section.search(title=similar_to)
+                )
+                similar_movie = all_movies[0] if all_movies else None
             if not similar_movie:
-                return f"ERROR: Movie with key {like_movie_rating_key} not found."
+                return f"ERROR: Movie with key/title {similar_to} not found."
             params = MovieSearchParams(
                 title if title else similar_movie.title,
                 year if year else similar_movie.year,
@@ -1631,10 +1620,10 @@ async def get_movie_recommendations(
             examples=[True, False],
         ),
     ] = None,
-    like_movie_rating_key: Annotated[
+    similar_to: Annotated[
         Optional[str],
         Field(
-            description="The rating key of the movie to base recommendations.",
+            description="The rating key or title of the movie to base recommendations.",
             default=None,
             examples=["12345", "67890"],
         ),
@@ -1667,11 +1656,20 @@ async def get_movie_recommendations(
     Returns:
         A list of movie keys and titles that match the given filters sorted by relevance, or an error message.
     """
+    similar_movie = None
     try:
         plex = await get_plex_server()
         library_section = movie_section(plex)
         if not library_section:
             return "ERROR: No movie section found in your Plex library."
+        if similar_to:
+            if similar_to.isdigit():
+                similar_movie = library_section.get(similar_to)
+            else:
+                similar_movies = library_section.search(similar_to, libtype=MediaType.MOVIE)
+                similar_movie = similar_movies[0] if similar_movies else None
+            if not similar_movie:
+                return f"ERROR: Movie with key/title {similar_to} not found."
         movies = await asyncio.to_thread(library_section.all)
     except Exception as e:
         logger.exception("search_movies failed connecting to Plex")
@@ -1681,10 +1679,7 @@ async def get_movie_recommendations(
         return "No movies found."
 
     logger.info("Found %d movies", len(movies))
-    if like_movie_rating_key:
-        similar_movie = next((m for m in movies if m.ratingKey == like_movie_rating_key), None)
-        if not similar_movie:
-            return f"ERROR: Movie with key {like_movie_rating_key} not found."
+    if similar_movie:
         params = MovieSearchParams(
             title if title else similar_movie.title,
             year if year else similar_movie.year,
