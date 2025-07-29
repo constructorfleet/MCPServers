@@ -51,11 +51,15 @@ requests_log.propagate = True
 logger = logging.getLogger(__name__)
 
 def recursive_get(s, key):
-    if "." in key:
-        first, rest = key.split(".", 1)
-        return recursive_get(s.get(first, {}), rest)
-    else:
-        return s.get(key, None)
+    try:
+        if "." in key:
+            first, rest = key.split(".", 1)
+            return recursive_get(s.get(first, {}), rest)
+        else:
+            return s.get(key, None)
+    except Exception:
+        logger.error(f"Failed to get key '{key}' from object: {s}")
+        return s
 
 def object_similarity_score(obj, filter_dict):
     score = 0
