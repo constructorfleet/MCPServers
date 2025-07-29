@@ -10,7 +10,7 @@ from plexapi.server import PlexServer
 from plexapi.library import MovieSection, ShowSection
 from plexapi.video import Movie as PlexAPIMovie, Episode as PlexAPIEpisode
 from plexapi.utils import toJson
-from plex.utils import sort_by_similarity
+from plex.utils import as_dict, sort_by_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -228,12 +228,14 @@ class PlexClient:
     def get_movie(self, rating_key: int) -> Optional[dict[str, Any]]:
         """Get a movie by its rating key."""
         server = self.get_server()
-        return json.loads(toJson(server.fetchItem(rating_key)))
+        return as_dict(server.fetchItem(rating_key))
 
     def find_movie_by_title(self, title: str) -> Optional[dict[str, Any]]:
         """Find a movie by its title."""
         movies = self.get_movies()
-        return sort_by_similarity([json.loads(toJson(m)) for m in movies], {"title": title})[0] if movies else None
+        if not movies:
+            return None
+        return sort_by_similarity([as_dict(m) for m in movies], {"title": title})[0] if movies else None
 
     def get_episode(self, rating_key: int) -> Optional[PlexAPIEpisode]:
         """Get an episode by its rating key."""

@@ -32,7 +32,7 @@ from plexapi.utils import toJson
 from rapidfuzz import process
 from pydantic import Field
 
-from plex.utils import sort_by_similarity
+from plex.utils import as_dict, sort_by_similarity
 
 try:
     import http.client as http_client
@@ -328,7 +328,7 @@ async def search_movies(
             if not similar_movie:
                 return f"ERROR: Movie with key/title {similar_to} not found."
             logger.info(
-                f"Found similar movie: {similar_movie['title']} ({[format_movie(m) for m in similar_movie]})",
+                f"Found similar movie: {similar_movie['title']} ({format_movie(similar_movie)})",
             )
             params = MovieSearchParams(
                 director=director if director else similar_movie['directors'],
@@ -365,7 +365,7 @@ async def search_movies(
     limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
     sorted_movies = sort_by_similarity(
         [
-            json.loads(toJson(m))
+            as_dict(m)
             for m in movies
             if similar_movie is None or m.ratingKey != similar_movie['ratingKey']
         ],
@@ -373,7 +373,7 @@ async def search_movies(
     )
     for i, m in enumerate(sorted_movies[:limit], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(json.loads(toJson(m)))}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(as_dict(m))}")  # type: ignore
 
     # if limit and len(movies) > limit:
     #     results.append(f"\n... and {len(movies)-limit} more results.")

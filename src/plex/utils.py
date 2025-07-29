@@ -30,3 +30,6 @@ def sort_by_similarity(objects: list[dict], filter_dict: dict) -> list[dict]:
         key=lambda obj: object_similarity_score(obj, filter_dict),
         reverse=True
     )
+
+def as_dict(obj):
+    return {k: v for k, v in obj.__dict__.items() if not k.startswith('_')}
