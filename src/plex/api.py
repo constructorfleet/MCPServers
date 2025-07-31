@@ -140,7 +140,7 @@ class Navigation(Controller, path="navigation"):
 
 DEFAULT_QUERY_PARAMETERS: Mapping[str, httpx._types.PrimitiveData] = {
     "includeGuids": 0,
-    "includeRelated": 1,
+    "includeRelated": 0,
     "includeChapters": 1,
     "includeReviews": 1,
     "includeMarkers": 1,
@@ -150,8 +150,8 @@ DEFAULT_QUERY_PARAMETERS: Mapping[str, httpx._types.PrimitiveData] = {
     "includeMeta": 0,
     "includeAllLeaves": 1,
     "includeChildren": 1,
-    "includeArt": 1,
-    "includeThumbs": 1,
+    "includeArt": 0,
+    "includeThumbs": 0,
     "includeSummary": 1,
     "includeRatings": 1,
     "includeTags": 1,
