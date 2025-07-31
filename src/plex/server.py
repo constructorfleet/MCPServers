@@ -377,7 +377,7 @@ async def search_movies(
     results: List[str] = []
     # Validate the limit parameter
     limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
-    for i, m in enumerate(movies[1:limit], start=1):
+    for i, m in enumerate(movies[1:limit + 1], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
 
@@ -1603,7 +1603,7 @@ async def get_movie_recommendations(
     results: List[str] = []
     # Validate the limit parameter
     limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
-    for i, m in enumerate(movies[1:limit], start=1):
+    for i, m in enumerate(movies[1:limit + 1], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
 
@@ -1839,7 +1839,7 @@ async def get_show_recommendations(
     results: List[str] = []
     # Validate the limit parameter
     limit = max(1, limit) if limit else len(episodes)  # Default to 5 if limit is 0 or negative
-    for i, e in enumerate(episodes[1:limit], start=1):
+    for i, e in enumerate(episodes[1:limit + 1], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
         results.append(f"Result #{i}:\nKey: {e.ratingKey}\n{format_episode(e)}")  # type: ignore
     return "\n".join(results)
