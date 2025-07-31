@@ -28,26 +28,18 @@ def format_movie(movie) -> str:
     duration = (
         movie['duration'] // 60000
     )
+    directors = movie.get('director', "Unknown")
+    actors = movie.get('actor', [])
     rating = movie['rating']
     studio = movie['studio']
-    directors = [
-        director["tag"]
-        for director
-        in movie['director']
-    ]
-    actors = [
-        role["tag"]
-        for role
-        in movie['actor']
-    ]
 
     return (
         f"Title: {title} ({year})\n"
         f"Rating: {rating}\n"
         f"Duration: {duration} minutes\n"
         f"Studio: {studio}\n"
-        f"Directors: {', '.join(directors) if directors else 'Unknown'}\n"
-        f"Starring: {', '.join(actors) if actors else 'Unknown'}\n"
+        f"Directors: {directors}\n"
+        f"Starring: {actors}\n"
         f"Summary: {summary}\n"
     )
 
@@ -72,8 +64,8 @@ def format_episode(episode) -> str:
     )
     rating = episode.get("rating", "Unrated")
     studio = episode.get("studio", "Unknown Studio")
-    directors = [director.tag for director in episode.get("director", [])[:3]]
-    actors = [role.tag for role in episode.get("role", [])[:5]]
+    directors = episode.get("director", "Unknown Director")
+    actors = episode.get("actor", "Unknown Actors")
     year = episode.get("year", "Unknown Year")
 
     return (
@@ -84,8 +76,8 @@ def format_episode(episode) -> str:
         f"Rating: {rating}\n"
         f"Duration: {duration} minutes\n"
         f"Studio: {studio}\n"
-        f"Directors: {', '.join(directors) if directors else 'Unknown'}\n"
-        f"Starring: {', '.join(actors) if actors else 'Unknown'}\n"
+        f"Directors: {directors}\n"
+        f"Starring: {actors}\n"
         f"Summary: {summary}\n"
     )
 
