@@ -311,6 +311,7 @@ async def search_movies(
     if not plex_api:
         return "ERROR: Plex API not initialized."
     similar_movie: Optional[dict] = None
+    start_index = 0
     try:
         if similar_to:
             if similar_to.isdigit():
@@ -324,6 +325,7 @@ async def search_movies(
 
             if not similar_movie:
                 return f"ERROR: Movie with key/title {similar_to} not found."
+            start_index = 1
             logger.info(
                 f"Found similar movie: {similar_movie['title']} ({format_movie(similar_movie)})",
             )
@@ -377,7 +379,7 @@ async def search_movies(
     results: List[str] = []
     # Validate the limit parameter
     limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
-    for i, m in enumerate(movies[1:limit + 1], start=1):
+    for i, m in enumerate(movies[start_index:limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
 
@@ -1550,6 +1552,7 @@ async def get_movie_recommendations(
     if not plex_api:
         return "ERROR: Plex server not configured."
     similar_movie = None
+    start_index = 0
     try:
         if similar_to:
             if similar_to.isdigit():
@@ -1572,6 +1575,7 @@ async def get_movie_recommendations(
                 rating=rating,
                 watched=watched
             )
+            start_index = 1
         else:
             params = MovieSearchParams(
                 title,
@@ -1603,7 +1607,7 @@ async def get_movie_recommendations(
     results: List[str] = []
     # Validate the limit parameter
     limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
-    for i, m in enumerate(movies[1:limit + 1], start=1):
+    for i, m in enumerate(movies[start_index:limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
 
@@ -1776,6 +1780,7 @@ async def get_show_recommendations(
     if not plex_api:
         return "ERROR: Plex server not configured."
     similar_episode = None
+    start_index = 0
     try:
         if similar_to:
             if similar_to.isdigit():
@@ -1806,6 +1811,7 @@ async def get_show_recommendations(
                 language=language,
                 watched=watched,
             )
+            start_index = 1
         else:
             params = ShowSearchParams(
                 episode_title=episode_title,
@@ -1839,7 +1845,7 @@ async def get_show_recommendations(
     results: List[str] = []
     # Validate the limit parameter
     limit = max(1, limit) if limit else len(episodes)  # Default to 5 if limit is 0 or negative
-    for i, e in enumerate(episodes[1:limit + 1], start=1):
+    for i, e in enumerate(episodes[start_index:limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
         results.append(f"Result #{i}:\nKey: {e.ratingKey}\n{format_episode(e)}")  # type: ignore
     return "\n".join(results)
