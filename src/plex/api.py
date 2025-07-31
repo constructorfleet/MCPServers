@@ -218,19 +218,23 @@ class PlexAPI:
 
     async def get_library_sections(self) -> dict:
         """Get a list of library sections."""
-        return await self._make_request("GET", "/library/sections")
+        data = await self._make_request("GET", "/library/sections")
+        return data.get("MediaContainer", {}).get("Directory", [])[0] if data.get("MediaContainer", {}).get("Directory") else {}
 
     async def get_library_section(self, section_id: int) -> dict:
         """Get details about a specific library section."""
-        return await self._make_request("GET", f"/library/sections/{section_id}")
+        data = await self._make_request("GET", f"/library/sections/{section_id}")
+        return data.get("MediaContainer", {}).get("Metadata", [])[0] if data.get("MediaContainer", {}).get("Metadata") else {}
 
     async def get_library_section_contents(self, section_id: int) -> dict:
         """Get contents of a specific library section."""
-        return await self._make_request("GET", f"/library/sections/{section_id}/all")
+        data = await self._make_request("GET", f"/library/sections/{section_id}/all")
+        return data.get("MediaContainer", {}).get("Metadata", [])[0] if data.get("MediaContainer", {}).get("Metadata") else {}
 
     async def get_item(self, rating_key: int) -> dict:
         """Get details about a specific item by its rating key."""
-        return await self._make_request("GET", f"/library/metadata/{rating_key}")
+        data = await self._make_request("GET", f"/library/metadata/{rating_key}")
+        return data.get("MediaContainer", {}).get("Metadata", [])[0] if data.get("MediaContainer", {}).get("Metadata") else {}
 
     async def _get_all_items(
         self,
@@ -242,7 +246,8 @@ class PlexAPI:
         params: httpx._types.QueryParamTypes = {
             k: str(v) for k, v in kwargs.items() if v is not None
         }
-        return await self._make_request("GET", url, params=params)
+        data = await self._make_request("GET", url, params=params)
+        return data.get("MediaContainer", {}).get("Metadata", [])[0] if data.get("MediaContainer", {}).get("Metadata") else {}
 
     async def get_all_movies(
         self, section_id: int | None = None, **kwargs: Unpack[SearchParameters]
@@ -328,14 +333,13 @@ class PlexTextSearch(BaseTextSearch):
         
         :return: list of media items
         """
-        sections_data = await self.plex.get_library_sections()
-        sections = sections_data.get("MediaContainer", {}).get("Directory", [])
+        sections = await self.plex.get_library_sections()
 
         for section in sections:
             items: list[dict] = []
             sec_id = int(section["key"])
             all_items_data = await self.plex.get_library_section_contents(sec_id)
-            items.extend(all_items_data.get("MediaContainer", {}).get("Metadata", []))
+            items.extend(all_items_data)
 
             self._media_items[sec_id] = items
         with open("items.json", "w") as f:
@@ -373,10 +377,13 @@ class PlexTextSearch(BaseTextSearch):
                 }
             )
         return pd.DataFrame(normalized)
-    
+
     async def _schedule_load_items(self):
         await self._load_items()
-        self._load_items_task = asyncio.create_task(self._schedule_load_items())
+        async def schedule_next_load():
+            await asyncio.sleep(60*60)
+            await self._schedule_load_items()
+        self._load_items_task = asyncio.create_task(schedule_next_load())
 
     async def find_media(
             self, 
