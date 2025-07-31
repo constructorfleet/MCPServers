@@ -381,7 +381,7 @@ async def search_movies(
     limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
     for i, m in enumerate(movies[start_index:limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m['ratingKey']}\n{format_movie(m)}")  # type: ignore
 
     # if limit and len(movies) > limit:
     #     results.append(f"\n... and {len(movies)-limit} more results.")
@@ -1609,7 +1609,7 @@ async def get_movie_recommendations(
     limit = max(1, limit) if limit else len(movies)  # Default to 5 if limit is 0 or negative
     for i, m in enumerate(movies[start_index:limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m['ratingKey']}\n{format_movie(m)}")  # type: ignore
 
     # if limit and len(movies) > limit:
     #     results.append(f"\n... and {len(movies)-limit} more results.")
@@ -1847,7 +1847,7 @@ async def get_show_recommendations(
     limit = max(1, limit) if limit else len(episodes)  # Default to 5 if limit is 0 or negative
     for i, e in enumerate(episodes[start_index:limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        results.append(f"Result #{i}:\nKey: {e.ratingKey}\n{format_episode(e)}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {e['ratingKey']}\n{format_episode(e)}")  # type: ignore
     return "\n".join(results)
 
 

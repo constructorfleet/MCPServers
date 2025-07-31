@@ -33,12 +33,12 @@ def format_movie(movie) -> str:
     directors = [
         director["tag"]
         for director
-        in movie['directors']
+        in movie['director']
     ]
     actors = [
         role["tag"]
         for role
-        in movie['roles']
+        in movie['actor']
     ]
 
     return (
@@ -62,19 +62,19 @@ def format_episode(episode) -> str:
     Returns:
         A formatted string containing episode details.
     """
-    show_title = getattr(episode, "grandparentTitle", "Unknown Show")
-    season_number = getattr(episode, "parentIndex", "Unknown Season")
-    episode_number = getattr(episode, "index", "Unknown Episode")
-    title = getattr(episode, "title", "Unknown Title")
-    summary = getattr(episode, "summary", "No summary available")
+    show_title = episode.get("grandparentTitle", "Unknown Show")
+    season_number = episode.get("parentIndex", "Unknown Season")
+    episode_number = episode.get("index", "Unknown Episode")
+    title = episode.get("title", "Unknown Title")
+    summary = episode.get("summary", "No summary available")
     duration = (
-        getattr(episode, "duration", 0) // 60000 if hasattr(episode, "duration") else 0
+        episode.get("duration", 0) // 60000
     )
-    rating = getattr(episode, "rating", "Unrated")
-    studio = getattr(episode, "studio", "Unknown Studio")
-    directors = [director.tag for director in getattr(episode, "directors", [])[:3]]
-    actors = [role.tag for role in getattr(episode, "roles", [])[:5]]
-    year = getattr(episode, "year", "Unknown Year")
+    rating = episode.get("rating", "Unrated")
+    studio = episode.get("studio", "Unknown Studio")
+    directors = [director.tag for director in episode.get("director", [])[:3]]
+    actors = [role.tag for role in episode.get("role", [])[:5]]
+    year = episode.get("year", "Unknown Year")
 
     return (
         f"Show: {show_title}\n"
