@@ -369,6 +369,7 @@ class PlexTextSearch(BaseTextSearch):
                     "rating": item.get("rating", 0.0) * 10,
                     "type": item.get("type", ""),
                     "watched": item.get("lastViewedAt", 0) > 0,
+                    "duration": item.get("duration", 0),
                 }
             )
         return pd.DataFrame(normalized)
