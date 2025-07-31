@@ -1,10 +1,13 @@
 import argparse
 import asyncio
-from inspect import isawaitable
 import inspect
 import logging
 from fastmcp import FastMCP
 from fastmcp.server.middleware.logging import LoggingMiddleware
+
+import tracemalloc
+
+tracemalloc.start()
 
 mcp: FastMCP = FastMCP()  # Decorators can import this
 mcp.add_middleware(LoggingMiddleware(logging.getLogger("MIDDLEWARE"), log_level=logging.INFO, include_payloads=True, ))

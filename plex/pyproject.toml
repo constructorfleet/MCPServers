@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-plex"
-version = "0.9.26"
+version = "0.10.0"
 description = "Plex-specific automation"
 requires-python = ">=3.11,<4"
 dependencies = [
@@ -12,8 +12,11 @@ dependencies = [
   "httpx>=0.28.1",
   "jsonpickle>=4.1.1",
   "mcp_base @ file://${PROJECT_ROOT}/base",
+  "pandas>=2.3.1",
   "plexapi>=4.17.0",
   "rapidfuzz>=3.13.0",
+  "scikit-learn>=1.7.1",
+  "sentence-transformers>=5.0.0",
 ]
 
 [project.scripts]

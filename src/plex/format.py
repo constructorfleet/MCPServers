@@ -154,18 +154,12 @@ def format_playlist(playlist) -> str:
         A formatted string containing playlist details.
     """
     duration_mins = (
-        sum(item.duration for item in playlist.items()) // 60000
-        if playlist.items()
+        sum(item["duration"] for item in playlist["items"]) // 60000
+        if playlist["items"] and "duration" in playlist["items"][0]
         else 0
-    )
-    updated = (
-        playlist.updatedAt.strftime("%Y-%m-%d %H:%M:%S")
-        if hasattr(playlist, "updatedAt")
-        else "Unknown"
     )
     return (
         f"Playlist: {playlist.title}\n"
         f"Items: {len(playlist.items())}\n"
         f"Duration: {duration_mins} minutes\n"
-        f"Last Updated: {updated}\n"
     )
