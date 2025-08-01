@@ -574,7 +574,7 @@ requires-dist = [
 
 [[package]]
 name = "mcp-plex"
-version = "0.9.26"
+version = "0.10.8"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },

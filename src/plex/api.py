@@ -1,11 +1,10 @@
 import asyncio
-import json
+import itertools
 from plexapi.server import PlexServer
 from plexapi.client import PlexClient
+from plexapi.media import Media
 import pandas as pd
-import numpy as np
 import logging
-from sklearn.feature_extraction.text import TfidfVectorizer
 import httpx
 from typing import (
     Any,
@@ -16,6 +15,7 @@ from typing import (
     Type,
     TypedDict,
     Unpack,
+    cast,
     get_type_hints,
 )
 
@@ -216,42 +216,50 @@ class PlexAPI:
         """Get a list of available Plex servers."""
         return await self._make_request("GET", "/servers")
 
-    async def get_library_sections(self) -> dict:
+    async def get_library_sections(self) -> list:
         """Get a list of library sections."""
         data = await self._make_request("GET", "/library/sections")
-        return data.get("MediaContainer", {}).get("Directory", [])[0] if data.get("MediaContainer", {}).get("Directory") else {}
+        return cast(list, data.get("MediaContainer", {}).get("Directory", [])) if data.get("MediaContainer", {}).get("Directory") else []
 
     async def get_library_section(self, section_id: int) -> dict:
         """Get details about a specific library section."""
         data = await self._make_request("GET", f"/library/sections/{section_id}")
         return data.get("MediaContainer", {}).get("Metadata", [])[0] if data.get("MediaContainer", {}).get("Metadata") else {}
 
-    async def get_library_section_contents(self, section_id: int) -> dict:
+    async def get_library_section_contents(self, section_id: int) -> list:
         """Get contents of a specific library section."""
-        data = await self._make_request("GET", f"/library/sections/{section_id}/all")
-        return data.get("MediaContainer", {}).get("Metadata", [])[0] if data.get("MediaContainer", {}).get("Metadata") else {}
+        all_data = await asyncio.gather(*[
+            self._make_request("GET", f"/library/sections/{section_id}/search", params={"type": libtype})
+            for libtype
+            in [1, 4]
+        ])
+        return list(itertools.chain.from_iterable([
+            data.get("MediaContainer", {}).get("Metadata", []) if data.get("MediaContainer", {}).get("Metadata") else []
+            for data
+            in all_data
+        ]))
 
     async def get_item(self, rating_key: int) -> dict:
         """Get details about a specific item by its rating key."""
         data = await self._make_request("GET", f"/library/metadata/{rating_key}")
-        return data.get("MediaContainer", {}).get("Metadata", [])[0] if data.get("MediaContainer", {}).get("Metadata") else {}
+        return data.get("MediaContainer", {}).get("Metadata", {}) if data.get("MediaContainer", {}).get("Metadata") else {}
 
     async def _get_all_items(
         self,
         section_id: int | None = None,
         **kwargs: Unpack[SearchParameters],
-    ) -> dict:
+    ) -> list:
         """Get all items of a specific type (e.g., 'movie', 'episode')."""
         url = f"/library/{f'{section_id}/' if section_id else ''}all"
         params: httpx._types.QueryParamTypes = {
             k: str(v) for k, v in kwargs.items() if v is not None
         }
         data = await self._make_request("GET", url, params=params)
-        return data.get("MediaContainer", {}).get("Metadata", [])[0] if data.get("MediaContainer", {}).get("Metadata") else {}
+        return data.get("MediaContainer", {}).get("Metadata", []) if data.get("MediaContainer", {}).get("Metadata") else []
 
     async def get_all_movies(
         self, section_id: int | None = None, **kwargs: Unpack[SearchParameters]
-    ) -> dict:
+    ) -> list:
         """Get all movies."""
         if not kwargs:
             kwargs = SearchParameters()
@@ -260,7 +268,7 @@ class PlexAPI:
 
     async def get_all_shows(
         self, section_id: int | None = None, **kwargs: Unpack[SearchParameters]
-    ) -> dict:
+    ) -> list:
         """Get all shows."""
         if not kwargs:
             kwargs = SearchParameters()
@@ -269,7 +277,7 @@ class PlexAPI:
 
     async def get_all_seasons(
         self, section_id: int | None = None, **kwargs: Unpack[SearchParameters]
-    ) -> dict:
+    ) -> list:
         """Get all seasons."""
         if not kwargs:
             kwargs = SearchParameters()
@@ -278,7 +286,7 @@ class PlexAPI:
 
     async def get_all_episodes(
         self, section_id: int | None = None, **kwargs: Unpack[SearchParameters]
-    ) -> dict:
+    ) -> list:
         """Get all episodes."""
         if not kwargs:
             kwargs = SearchParameters()
@@ -305,6 +313,10 @@ class PlexAPI:
     async def get_client(self, machine_identifier: str) -> PlexClient | None:
         """Get a client by ID."""
         return next((c for c in await self.get_clients() if c.machineIdentifier == machine_identifier), None)
+
+    async def get_media(self, key: int | str) -> Media | None:
+        """Get media item by key."""
+        return await asyncio.to_thread(self.server.fetchItem, key)
 
 
 class PlexTextSearch(BaseTextSearch):
@@ -342,8 +354,6 @@ class PlexTextSearch(BaseTextSearch):
             items.extend(all_items_data)
 
             self._media_items[sec_id] = items
-        with open("items.json", "w") as f:
-            f.write(json.dumps(self._media_items, indent=2))
 
     def flatten_media_items(self, items: list[dict]) -> pd.DataFrame:
         def extract_tags(tag_list):
@@ -374,6 +384,10 @@ class PlexTextSearch(BaseTextSearch):
                     "type": item.get("type", ""),
                     "watched": item.get("lastViewedAt", 0) > 0,
                     "duration": item.get("duration", 0),
+                    "grandparentTitle": item.get("grandparentTitle", ""),
+                    "parentTitle": item.get("parentTitle", ""),
+                    "index": item.get("index", 0),
+                    "parentIndex": item.get("parentIndex", 0),
                 }
             )
         return pd.DataFrame(normalized)
@@ -398,6 +412,9 @@ class PlexTextSearch(BaseTextSearch):
             studio: str | list[str] | None = None,
             genre: str | list[str] | None = None,
             actor: str | list[str] | None = None,
+            grandparentTitle: str | None = None,
+            parentTitle: str | None = None,
+            index: int | None = None,
             rating: str | None = None,
             country: str | None = None,
             summary: str | None = None,
@@ -437,6 +454,9 @@ class PlexTextSearch(BaseTextSearch):
             "summary": summary,
             "contentRating": contentRating,
             "watched": watched,
+            "grandparentTitle": grandparentTitle,
+            "parentTitle": parentTitle,
+            "index": index,
         }   
         if query:
             query_dict["summary"] = query

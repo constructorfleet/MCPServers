@@ -1,4 +1,3 @@
-from rapidfuzz import process
 from rapidfuzz.fuzz import token_set_ratio
 
 import logging
