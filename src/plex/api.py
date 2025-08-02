@@ -162,6 +162,7 @@ DEFAULT_QUERY_PARAMETERS: Mapping[str, httpx._types.PrimitiveData] = {
     "includeCountries": 1,
     "includeStudios": 1,
     "includeLanguages": 1,
+    "includeTitle": 1,
 }
 
 
