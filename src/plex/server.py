@@ -804,10 +804,10 @@ async def play_media_on_client(
         if "playback" not in client.protocolCapabilities:
             return f"Client {client.title} does not support playback control."
         logger.info("Found client: %s with media key: %s", client.title, media_key)
-        media = await plex_api.get_item(media_key)
+        media = await plex_api.get_media(media_key)
         if not media:
             return f"No media found with key {media_key}."
-        logger.info("Playing media: %s on client: %s", media["title"], client.title)
+        logger.info("Playing media: %s on client: %s", media.title, client.title)
         await asyncio.to_thread(client.playMedia, media)
         return f"Playing {media.title} on {client.title}." # type: ignore
     except Exception as e:
