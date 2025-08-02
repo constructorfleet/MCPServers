@@ -243,7 +243,7 @@ class PlexAPI:
     async def get_item(self, rating_key: int) -> dict:
         """Get details about a specific item by its rating key."""
         data = await self._make_request("GET", f"/library/metadata/{rating_key}")
-        return data.get("MediaContainer", {}).get("Metadata", {}) if data.get("MediaContainer", {}).get("Metadata") else {}
+        return data.get("MediaContainer", {}).get("Metadata", [{}])[0] if data.get("MediaContainer", {}).get("Metadata") else {}
 
     async def _get_all_items(
         self,
