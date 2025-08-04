@@ -771,12 +771,28 @@ async def play_media_on_client(
         ),
     ],
     media_key: Annotated[
-        int,
+        Optional[int],
         Field(
-            description="The key of the media item to play.",
+            default=None,
+            description="The key of the media item to play (if media_title is not provided).",
             examples=["12345", "67890"],
         ),
     ],
+    media_title: Annotated[
+        Optional[str],
+        Field(
+            default=None,
+            description="The title of the media item to play (if media_key is not provided).",
+            examples=["Inception", "The Matrix"],
+        ),
+    ] = None,
+    media_type: Annotated[
+        Optional[str],
+        Field(
+            description="The type of media to play when searching by title.",
+            examples=["movie", "episode"],
+        ),
+    ] = None,
 ) -> str:
     """
     Play specified media on a given Plex client.
@@ -786,6 +802,8 @@ async def play_media_on_client(
     Returns:
         A success message or an error message.
     """
+    if not media_key and not media_title:
+        return "ERROR: Either media_key or media_title must be provided."
     if not plex_api:
         return "ERROR: Plex server not configured."
 
@@ -803,6 +821,13 @@ async def play_media_on_client(
             return f"No client found with machine identifier/name {machine_identifier_or_client_name}."
         if "playback" not in client.protocolCapabilities:
             return f"Client {client.title} does not support playback control."
+        if not media_key and media_title:
+            media = await get_plex_search().find_media(type=media_type, title=media_title)
+            if not media:
+                return f"No media found with title {media_title}."
+            media_key = media[0]['key']
+        if not media_key:
+            return f"No media found with title {media_title}."
         logger.info("Found client: %s with media key: %s", client.title, media_key)
         media = await plex_api.get_media(media_key)
         if not media:
