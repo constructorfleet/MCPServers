@@ -5,7 +5,7 @@ from pydantic import BaseModel, create_model, ConfigDict
 from qdrant_client.async_qdrant_client import AsyncQdrantClient
 from qdrant_client.models import  CollectionInfo, Document, ScoredPoint
 from qdrant_client.conversions.common_types import Points
-from qdrant_client.http.models import Filter, MinShould, FieldCondition, MatchPhrase
+from qdrant_client.http.models import Filter, MinShould, FieldCondition, MatchPhrase, MatchValue
 
 import asyncio
 from typing import Callable, Awaitable
@@ -123,7 +123,7 @@ class Collection(CollectionInfo, Generic[TModel]):
         payloads: list[dict] = []
         for item in data:
             ids.append(id_getter(item) or "")
-            vectors.append(Document(text=self.make_document(item), model=self.model))
+            vectors.append(Document(text=self.make_document(item), model=self.model, options={"cuda": True}))
             payloads.append(item.model_dump(exclude_unset=True))
         await asyncio.to_thread(self.qdrant_client.upload_collection,
             collection_name=self.name,
@@ -134,23 +134,26 @@ class Collection(CollectionInfo, Generic[TModel]):
         )
 
     async def search(self, data: PlexMediaPayload, limit: int | None = None) -> list[DataPoint[TModel]]:
-        conditions: list = []
+        shoulds: list = []
+        musts: list = []
         if data.title:
-            conditions.append(FieldCondition(key="title", match=MatchPhrase(phrase=data.title)))
+            shoulds.append(FieldCondition(key="title", match=MatchPhrase(phrase=data.title)))
         if data.show_title:
-            conditions.append(FieldCondition(key="show_title", match=MatchPhrase(phrase=data.show_title)))
+            shoulds.append(FieldCondition(key="show_title", match=MatchPhrase(phrase=data.show_title)))
         if data.genres:
             for genre in data.genres:
-                conditions.append(FieldCondition(key="genres", match=MatchPhrase(phrase=genre)))
+                shoulds.append(FieldCondition(key="genres", match=MatchPhrase(phrase=genre)))
+        if data.watched is not None:
+            musts.append(FieldCondition(key="watched", match=MatchValue(value=data.watched)))
         result = await self.qdrant_client.query_points(
             collection_name=self.name,
-            query=Document(text=PlexMediaPayload.document(cast(PlexMediaPayload, data)), model=self.model),
+            query=Document(text=PlexMediaPayload.document(cast(PlexMediaPayload, data)), model=self.model, options={"cuda": True}),
             query_filter=Filter(
                 should=[],
                 must=[],
                 must_not=[],
                 min_should=MinShould(
-                    conditions=conditions,
+                    conditions=shoulds,
                     min_count=1,
                 )
             ),
@@ -164,7 +167,7 @@ class Collection(CollectionInfo, Generic[TModel]):
     async def query(self, query: str, limit: int | None = None) -> list[DataPoint[TModel]]:
         result = await self.qdrant_client.query_points(
             collection_name=self.name,
-            query=Document(text=query, model=self.model),
+            query=Document(text=query, model=self.model, options={"cuda": True}),
             limit=limit or 10000,
         )
         return sorted([DataPoint.model_validate({
