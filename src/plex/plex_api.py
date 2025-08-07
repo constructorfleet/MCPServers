@@ -374,7 +374,7 @@ class PlexTextSearch:
                     duration_seconds=int(item.get("duration", 0)),
                     show_title=item.get("grandparentTitle"),
                     season=item.get("parentTitle"),
-                    episode=int(item.get("index")),
+                    episode=int(item.get("index")) if item.get("index") else None,
                 )
             } for item in all_items_data])
         await media.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in items])), lambda x: x.key, False)
