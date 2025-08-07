@@ -19,7 +19,6 @@ from typing import (
 )
 
 from plex.knowledge import Collection, KnowledgeBase, PlexMediaQuery, PlexMediaPayload
-from plex.search import BaseTextSearch
 _LOGGER = logging.getLogger(__name__)
 
 class Command:
