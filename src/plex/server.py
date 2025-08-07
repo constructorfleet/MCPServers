@@ -289,9 +289,6 @@ async def search_movies(
             if not similar_movie:
                 return f"ERROR: Movie with key/title {similar_to} not found."
             start_index = 1
-            logger.info(
-                f"Found similar movie: {similar_movie['title']} ({format_movie(similar_movie)})",
-            )
             params = PlexMediaQuery(
                 type='movie',
                 title=title,
@@ -374,8 +371,27 @@ async def get_movie_details(
 
         if not movie:
             return f"No movie found with key {movie_key}."
-        logger.info("Returning %s", format_movie(movie))
-        return format_movie(movie)
+        payload = PlexMediaPayload(
+            key=int(movie["ratingKey"]),
+            title=movie["title"],
+            summary=movie["summary"],
+            year=int(movie["year"]) if movie["year"] else 0,
+            rating=float(movie["rating"]) * 10.0 if movie["rating"] else 0.0,
+            watched=movie["isWatched"],
+            type='movie',
+            genres=[g.tag for g in movie["Genre"]] if movie["Genre"] else [],
+            actors=[a.tag for a in movie["Actor"]] if movie["Actor"] else [],
+            studio=movie["studio"] or "",
+            directors=[d.tag for d in movie["Director"]] if movie["Director"] else [],
+            writers=[w.tag for w in movie["Writer"]] if movie["Writer"] else [],
+            duration_seconds=(movie["duration"] // 1000) if movie["duration"] else 0,
+            content_rating=movie["contentRating"] if "contentRating" in movie else None,
+            show_title=None,
+            season=None,
+            episode=None,
+        )
+        logger.info("Returning %s", format_movie(payload))
+        return format_movie(payload)
     except NotFound:
         return f"ERROR: Movie with key {movie_key} not found."
     except Exception as e:
@@ -562,9 +578,7 @@ async def search_shows(
             if not similar_episodes:
                 return f"ERROR: Episode with key/title {similar_to} not found."
             similar_episode = similar_episodes[0].model_dump()
-            logger.info(
-                f"Found similar episode: {similar_episode['show_title']} S{similar_episode['season']}E{similar_episode['episode']} ({format_episode(similar_episode)})",
-            )
+
             params = PlexMediaQuery(
                 type='episode',
                 show_title=show_title or similar_episode.get('show_title'),
@@ -646,8 +660,26 @@ async def get_episode_details(
         episode = await plex_api.get_item(episode_key)
         if not episode:
             return f"No episode found with key {episode_key}."
-
-        return format_episode(episode)
+        payload = PlexMediaPayload(
+            key=int(episode["ratingKey"]),
+            title=episode["title"],
+            summary=episode["summary"],
+            year=int(episode["year"]) if episode["year"] else 0,
+            rating=float(episode["rating"]) * 10.0 if episode["rating"] else 0.0,
+            watched=episode["isWatched"],
+            type='episode',
+            genres=[g.tag for g in episode["Genre"]] if episode["Genre"] else [],
+            actors=[a.tag for a in episode["Actor"]] if episode["Actor"] else [],
+            studio=episode["studio"] or "",
+            directors=[d.tag for d in episode["Director"]] if episode["Director"] else [],
+            writers=[w.tag for w in episode["Writer"]] if episode["Writer"] else [],
+            duration_seconds=(episode["duration"] // 1000) if episode["duration"] else 0,
+            content_rating=episode["contentRating"] if "contentRating" in episode else None,
+            show_title=episode["grandparentTitle"] if "grandparentTitle" in episode else None,
+            season=episode["parentTitle"] if "parentTitle" in episode and episode["parentTitle"] else None,
+            episode=int(episode["index"]) if "index" in episode and episode["index"] else None,
+        )
+        return format_episode(payload)
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 

@@ -7,10 +7,12 @@ from plexapi.video import Video as PlexAPIVideo
 
 import json
 
+from plex.knowledge import PlexMediaPayload
+
 logger = logging.getLogger(__name__)
 
 
-def format_movie(movie) -> str:
+def format_movie(movie: PlexMediaPayload) -> str:
     """
     Format a movie object into a human-readable string.
 
@@ -20,18 +22,16 @@ def format_movie(movie) -> str:
     Returns:
         A formatted string containing movie details.
     """
-    if not isinstance(movie, dict):
-        movie = json.loads(toJson(movie))
-    title = movie['title']
-    year = movie['year']
-    summary = movie['summary']
+    title = movie.title
+    year = movie.year
+    summary = movie.summary
     duration = (
-        movie['duration'] // 60000
+        movie.duration_seconds
     )
-    directors = movie.get('director', "Unknown")
-    actors = movie.get('actor', [])
-    rating = movie['rating']
-    studio = movie['studio']
+    directors = movie.directors or "Unknown"
+    actors = movie.actors or []
+    rating = movie.rating
+    studio = movie.studio
 
     return (
         f"Title: {title} ({year})\n"
@@ -44,7 +44,7 @@ def format_movie(movie) -> str:
     )
 
 
-def format_episode(episode) -> str:
+def format_episode(episode: PlexMediaPayload) -> str:
     """
     Format an episode object into a human-readable string.
 
@@ -54,23 +54,23 @@ def format_episode(episode) -> str:
     Returns:
         A formatted string containing episode details.
     """
-    show_title = episode.get("grandparentTitle", "Unknown Show")
-    season_number = episode.get("parentIndex", "Unknown Season")
-    episode_number = episode.get("index", "Unknown Episode")
-    title = episode.get("title", "Unknown Title")
-    summary = episode.get("summary", "No summary available")
+    show_title = episode.show_title
+    season = episode.season
+    episode_number = episode.episode
+    title = episode.title
+    summary = episode.summary
     duration = (
-        episode.get("duration", 0) // 60000
+        episode.duration_seconds
     )
-    rating = episode.get("rating", "Unrated")
-    studio = episode.get("studio", "Unknown Studio")
-    directors = episode.get("director", "Unknown Director")
-    actors = episode.get("actor", "Unknown Actors")
-    year = episode.get("year", "Unknown Year")
+    rating = episode.rating or "Unrated"
+    studio = episode.studio or "Unknown Studio"
+    directors = episode.directors or "Unknown Director"
+    actors = episode.actors or "Unknown Actors"
+    year = episode.year or "Unknown Year"
 
     return (
         f"Show: {show_title}\n"
-        f"Season: {season_number}, Episode: {episode_number}\n"
+        f"{season}, Episode: {episode_number}\n"
         f"Year: {year}\n"
         f"Title: {title} ({year})\n"
         f"Rating: {rating}\n"
@@ -111,8 +111,48 @@ def format_media(video: PlexAPIVideo) -> str:
     logger.error(json.dumps(toJson(video), indent=2))
     is_movie = (video['type'] if isinstance(video, dict) else getattr(video, "type", None)) == "movie"
     logger.error(f"is_movie: {is_movie}")
+    if video.type == "movie":
+        payload = PlexMediaPayload(
+            key=int(video.ratingKey),
+            title=video.title,
+            summary=video.summary,
+            year=int(video.year) if video.year else 0,
+            rating=float(video.rating) * 10.0 if video.rating else 0.0,
+            watched=video.isWatched,
+            type='movie',
+            genres=[g.tag for g in video.genres] if video.genres else [],
+            actors=[a.tag for a in video.actors] if video.actors else [],
+            studio=video.studio or "",
+            directors=[d.tag for d in video.directors] if video.directors else [],
+            writers=[w.tag for w in video.writers] if video.writers else [],
+            duration_seconds=(video.duration // 1000) if video.duration else 0,
+            content_rating=video.contentRating if hasattr(video, 'contentRating') else None,
+            show_title=None,
+            season=None,
+            episode=None,
+        )
+    else:
+        payload = PlexMediaPayload(
+            key=int(video.ratingKey),
+            title=video.title,
+            summary=video.summary,
+            year=int(video.year) if video.year else 0,
+            rating=float(video.rating) * 10.0 if video.rating else 0.0,
+            watched=video.isWatched,
+            type='episode',
+            genres=[g.tag for g in video.genres] if video.genres else [],
+            actors=[a.tag for a in video.actors] if video.actors else [],
+            studio=video.studio or "",
+            directors=[d.tag for d in video.directors] if video.directors else [],
+            writers=[w.tag for w in video.writers] if video.writers else [],
+            duration_seconds=(video.duration // 1000) if video.duration else 0,
+            content_rating=video.contentRating if hasattr(video, 'contentRating') else None,
+            show_title=video.grandparentTitle if hasattr(video, 'grandparentTitle') else None,
+            season=str(video.parentIndex) if hasattr(video, 'parentIndex') and video.parentIndex is not None else None,
+            episode=int(video.index) if hasattr(video, 'index') and video.index is not None else None,
+        )
     return (
-        f"{format_episode(video) if not is_movie else format_movie(video)}\n"
+        f"{format_episode(payload) if not is_movie else format_movie(payload)}\n"
     )
 
 
