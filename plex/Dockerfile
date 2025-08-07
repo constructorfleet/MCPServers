@@ -4,7 +4,7 @@ FROM "${BASE_IMAGE}:${BASE_VERSION}" AS base
 FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends cudnn9=9.11.0-1 libcudnn9-cuda-12=9.11.0.98-1 libcudnn9-dev-cuda-12=9.11.0.98-1 && \
+    apt-get install -y --no-install-recommends --allow-change-held-packages cudnn9=9.11.0-1 libcudnn9-cuda-12=9.11.0.98-1 libcudnn9-dev-cuda-12=9.11.0.98-1 && \
     apt-get install -y --no-install-recommends software-properties-common curl gnupg lsb-release && \
     add-apt-repository ppa:deadsnakes/ppa -y && \
     apt-get update && apt-get install -y --no-install-recommends python3.12 python3.12-venv python3.12-dev python3.12-pip && \
