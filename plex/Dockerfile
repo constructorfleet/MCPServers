@@ -1,5 +1,6 @@
+ARG BASE_IMAGE="docker.home.prettybaked.com/constructorfleet/mcp-base"
 ARG BASE_VERSION=latest
-FROM "docker.home.prettybaked.com/constructorfleet/mcp-base:${BASE_VERSION}"
+FROM "${BASE_IMAGE}:${BASE_VERSION}"
 ENV MCP_PACKAGE="mcp-plex"
 ENV PLEX_TOKEN=
 ENV PLEX_URL=

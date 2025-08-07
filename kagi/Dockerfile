@@ -1,6 +1,6 @@
-#Dockerfile.kagi
+ARG BASE_IMAGE="docker.home.prettybaked.com/constructorfleet/mcp-base"
 ARG BASE_VERSION=latest
-FROM "docker.home.prettybaked.com/constructorfleet/mcp-base:${BASE_VERSION}"
+FROM "${BASE_IMAGE}:${BASE_VERSION}"
 
 ENV MCP_PACKAGE="mcp-kagi"
 ENV KAGI_API_KEY=

@@ -21,6 +21,7 @@ build-kagi: build-base
 	KAGI_VERSION=$$(grep '^version =' kagi/pyproject.toml | cut -d'"' -f2); \
 	echo "🧠 Building kagi: $(KAGI_IMAGE):$$KAGI_VERSION"; \
 	docker build -f kagi/Dockerfile \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE):$$BASE_VERSION \
 		--build-arg BASE_VERSION=$$BASE_VERSION \
 		-t $(KAGI_IMAGE):$$KAGI_VERSION \
 		-t $(KAGI_IMAGE):latest .
@@ -30,6 +31,7 @@ build-plex: build-base
 	PLEX_VERSION=$$(grep '^version =' plex/pyproject.toml | cut -d'"' -f2); \
 	echo "🎛 Building plex: $(PLEX_IMAGE):$$PLEX_VERSION"; \
 	docker build -f plex/Dockerfile \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE):$$BASE_VERSION \
 		--build-arg BASE_VERSION=$$BASE_VERSION \
 		-t $(PLEX_IMAGE):$$PLEX_VERSION \
 		-t $(PLEX_IMAGE):latest .
