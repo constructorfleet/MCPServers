@@ -1,7 +1,7 @@
 ARG BASE_IMAGE="docker.home.prettybaked.com/constructorfleet/mcp-base"
 ARG BASE_VERSION=latest
 FROM "${BASE_IMAGE}:${BASE_VERSION}" as base
-FROM nvidia/cuda:12.4.0-cudnn9-devel-ubuntu22.04
+FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
 
 RUN apt-get update && apt-get install -y \
     python3.11 python3.11-venv python3.11-dev curl git build-essential && \
@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     curl -sS https://bootstrap.pypa.io/get-pip.py | python3 && \
     pip install --upgrade pip
 
+WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:0.7.21 /uv /uvx /bin/
 
 COPY --from=base /app /app
