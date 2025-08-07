@@ -328,7 +328,7 @@ async def search_movies(
     limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
     for i, m in enumerate(movies[start_index:limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        results.append(f"Result #{i}:\nKey: {m['ratingKey']}\n{format_movie(m.model_dump())}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.key}\n{format_movie(m.model_dump())}")  # type: ignore
 
     # if limit and len(movies) > limit:
     #     results.append(f"\n... and {len(movies)-limit} more results.")
@@ -371,6 +371,7 @@ async def get_movie_details(
         if not movie:
             return f"No movie found with key {movie_key}."
         payload = PlexMediaPayload(
+            key=int(movie["ratingKey"]),
             key=int(movie["ratingKey"]),
             title=movie["title"],
             summary=movie["summary"],
@@ -1574,7 +1575,7 @@ async def get_movie_recommendations(
     limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
     for i, m in enumerate(movies[start_index:limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        results.append(f"Result #{i}:\nKey: {m['ratingKey']}\n{format_movie(m.model_dump())}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.key}\n{format_movie(m.model_dump())}")  # type: ignore
 
     logger.info("Returning %s.", "\n---\n".join(results))
     return "\n---\n".join(results) if results else "No matching movies found."
@@ -1780,7 +1781,7 @@ async def get_show_recommendations(
     # Validate the limit parameter
     limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
     for i, e in enumerate(episodes[start_index:limit + start_index], start=1):
-        results.append(f"Result #{i}:\nKey: {e['ratingKey']}\n{format_episode(e.model_dump())}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {e.key}\n{format_episode(e.model_dump())}")  # type: ignore
     return "\n".join(results)
 
 
