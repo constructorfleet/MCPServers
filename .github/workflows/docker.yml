@@ -58,6 +58,7 @@ jobs:
           subject-digest: ${{ steps.image-info.outputs.image_digest }}
           push-to-registry: true
   build-and-push-images:
+    needs: build-and-push-base
     strategy:
       matrix:
         package: [plex, kagi]
