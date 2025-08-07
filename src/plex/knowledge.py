@@ -1,14 +1,9 @@
-from optparse import make_option
-from typing import Generic, Literal, Optional, Type, TypeAlias, TypeVar, TypedDict, get_type_hints
+from typing import Generic, Literal, Optional, Type, TypeVar, get_type_hints
 from click import Option
-from pydantic import BaseModel, create_model
-import qdrant_client
+from pydantic import BaseModel, create_model, ConfigDict
 from qdrant_client.async_qdrant_client import AsyncQdrantClient
-from qdrant_client.models import VectorParams, Distance, CollectionInfo, Document, ScoredPoint
+from qdrant_client.models import  CollectionInfo, Document, ScoredPoint
 from qdrant_client.conversions.common_types import Points
-
-from typing import Callable, Awaitable
-import asyncio
 
 import asyncio
 from typing import Callable, Awaitable
@@ -104,6 +99,8 @@ class Collection(CollectionInfo, Generic[TModel]):
     make_document: Callable[[TModel], str]
     name: str
     model: str
+    
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     
     async def upsert_points(self, points: Points, wait: bool = True):
         await self.qdrant_client.upsert(
