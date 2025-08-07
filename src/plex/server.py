@@ -1811,6 +1811,7 @@ async def on_run_server(args):
     global plex_api, plex_search
     plex_api = PlexAPI(os.environ["PLEX_SERVER_URL"], os.environ["PLEX_TOKEN"])
     plex_search = PlexTextSearch(plex_api, KnowledgeBase(os.environ["MODEL_NAME"], os.environ["QDRANT_HOST"], int(os.environ["QDRANT_PORT"])))
+    await plex_search._schedule_load_items()
     logger.info("Connected to Plex server at %s", os.environ["PLEX_SERVER_URL"])
     # movies = await get_plex_search().find_media(type="movie", title="Terminator Dark Fate")
     # client = await plex_api.get_client("dbb438549d0cc1c9-com-plexapp-android")

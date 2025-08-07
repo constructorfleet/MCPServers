@@ -358,23 +358,23 @@ class PlexTextSearch:
 
             items.extend([{
                 item.get("ratingKey", ""): PlexMediaPayload(
-                    key=item.get("ratingKey", ""),
+                    key=int(item.get("ratingKey", "")),
                     title=item.get("title", ""),
                     summary=item.get("summary", ""),
                     genres=[g["tag"] for g in item.get("Genre", [])] if item.get("Genre") else [],
                     directors=[d["tag"] for d in item.get("Director", [])] if item.get("Director") else [],
                     actors=[a["tag"] for a in item.get("Role", [])] if item.get("Role") else [],
                     writers=[w["tag"] for w in item.get("Writer", [])] if item.get("Writer") else [],
-                    year=item.get("year", None),
+                    year=int(item.get("year")) if item.get("year", None) else 0,
                     studio=item.get("studio", ""),
-                    rating=item.get("rating", 0.0) * 10 if item.get("rating") else 0.0,
+                    rating=float(item.get("rating", 0.0)) * 10 if item.get("rating") else 0.0,
                     content_rating=item.get("contentRating"),
                     type=item.get("type", ""),
                     watched=item.get("viewCount", 0) > 0,
-                    duration_seconds=item.get("duration", 0),
+                    duration_seconds=int(item.get("duration", 0)),
                     show_title=item.get("grandparentTitle"),
                     season=item.get("parentTitle"),
-                    episode=item.get("index"),
+                    episode=int(item.get("index")),
                 )
             } for item in all_items_data])
         await media.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in items])), lambda x: x.key, False)
@@ -393,7 +393,7 @@ class PlexTextSearch:
             limit: int | None = None,
     ) -> list[PlexMediaPayload]:
         if not self._loaded:
-            await self._load_items()
+            raise Exception("Items not loaded yet. Call try again in a bit.")
         media = await self.knowledge_base.media()
         if not media:
             return []
