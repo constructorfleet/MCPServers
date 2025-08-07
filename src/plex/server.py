@@ -750,7 +750,7 @@ async def get_active_clients(
         return "ERROR: Plex server not configured."
 
     try:
-        clients, sessions = await asyncio.gather(*[asyncio.to_thread(plex_api.get_clients), asyncio.to_thread(plex_api.get_sessions)])
+        clients, sessions = await asyncio.gather(*[plex_api.get_clients, plex_api.get_sessions])
 
         if not clients and not sessions:
             return "No active clients connected to your Plex server."
