@@ -332,7 +332,7 @@ async def search_movies(
     limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
     for i, m in enumerate(movies[start_index:limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        results.append(f"Result #{i}:\nKey: {m['ratingKey']}\n{format_movie(m)}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m['ratingKey']}\n{format_movie(m.model_dump())}")  # type: ignore
 
     # if limit and len(movies) > limit:
     #     results.append(f"\n... and {len(movies)-limit} more results.")
@@ -606,7 +606,7 @@ async def search_shows(
     limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
     results: List[str] = []
     for i, m in enumerate(episodes[:limit], start=1):
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m.model_dump())}")  # type: ignore
 
     if len(episodes) > limit:
         results.append(f"\n... and {len(episodes)-limit} more results.")
@@ -1543,7 +1543,7 @@ async def get_movie_recommendations(
     limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
     for i, m in enumerate(movies[start_index:limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        results.append(f"Result #{i}:\nKey: {m['ratingKey']}\n{format_movie(m)}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {m['ratingKey']}\n{format_movie(m.model_dump())}")  # type: ignore
 
     logger.info("Returning %s.", "\n---\n".join(results))
     return "\n---\n".join(results) if results else "No matching movies found."
@@ -1749,7 +1749,7 @@ async def get_show_recommendations(
     # Validate the limit parameter
     limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
     for i, e in enumerate(episodes[start_index:limit + start_index], start=1):
-        results.append(f"Result #{i}:\nKey: {e['ratingKey']}\n{format_episode(e)}")  # type: ignore
+        results.append(f"Result #{i}:\nKey: {e['ratingKey']}\n{format_episode(e.model_dump())}")  # type: ignore
     return "\n".join(results)
 
 
