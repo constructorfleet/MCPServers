@@ -1,3 +1,4 @@
+ENV DEBIAN_FRONTEND=noninteractive
 ARG BASE_IMAGE="docker.home.prettybaked.com/constructorfleet/mcp-base"
 ARG BASE_VERSION=latest
 FROM "${BASE_IMAGE}:${BASE_VERSION}" AS base
