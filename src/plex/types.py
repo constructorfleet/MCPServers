@@ -93,7 +93,7 @@ class MovieSearchParams:
     studio: Optional[str] = None
     genre: Optional[str] = None
     actor: Optional[str] = None
-    rating: Optional[str] = None
+    content_rating: Optional[str] = None
     country: Optional[str] = None
     language: Optional[str] = None
     watched: Optional[bool] = None  # True=only watched, False=only unwatched
@@ -107,7 +107,7 @@ class MovieSearchParams:
             "studio": "studio",
             "genre": "genres",
             "actor": "actors",
-            "rating": "contentRating",
+            "content_rating": "contentRating",
             "country": "countries",
             "language": "audioLanguage",
             "watched": "unwatched",

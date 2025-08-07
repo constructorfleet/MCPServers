@@ -19,6 +19,7 @@ from typing import (
     get_type_hints,
 )
 
+from plex.knowledge import Collection, KnowledgeBase, PlexMediaQuery, PlexMediaPayload
 from plex.search import BaseTextSearch
 _LOGGER = logging.getLogger(__name__)
 
@@ -320,8 +321,8 @@ class PlexAPI:
         return await asyncio.to_thread(self.server.fetchItem, key)
 
 
-class PlexTextSearch(BaseTextSearch):
-    def __init__(self, plex: PlexAPI, fields_with_weights: dict, mode: str='tfidf', model_name: str='all-MiniLM-L6-v2'):
+class PlexTextSearch:
+    def __init__(self, plex: PlexAPI, knowledge_base: KnowledgeBase):
         """
         Initialize the text search with specified fields and weights.
         
@@ -336,9 +337,10 @@ class PlexTextSearch(BaseTextSearch):
         :param mode: 'tfidf' or 'embedding'
         :param model_name: model for embedding mode
         """
-        super().__init__(fields_with_weights, mode, model_name)
         self.plex = plex
-        self._media_items: dict[int, list[dict]] = {}
+        self.knowledge_base = knowledge_base
+        self._loaded = False
+        self._media: Collection[PlexMediaPayload]
 
     async def _load_items(self) -> None:
         """
@@ -346,52 +348,39 @@ class PlexTextSearch(BaseTextSearch):
         
         :return: list of media items
         """
+        if media := await self.knowledge_base.media():
+            self._media = media
+        else:
+            return None
         sections = await self.plex.get_library_sections()
-
+        items: list[dict] = []
         for section in sections:
-            items: list[dict] = []
             sec_id = int(section["key"])
             all_items_data = await self.plex.get_library_section_contents(sec_id)
-            items.extend(all_items_data)
 
-            self._media_items[sec_id] = items
-
-    def flatten_media_items(self, items: list[dict]) -> pd.DataFrame:
-        def extract_tags(tag_list):
-            return [x["tag"] for x in tag_list] if isinstance(tag_list, list) else []
-
-        normalized = []
-        for item in items:
-            normalized.append(
-                {
-                    "ratingKey": item.get("ratingKey", ""),
-                    "key": item.get("key", ""),
-                    "title": item.get("title", ""),
-                    "summary": item.get("summary", ""),
-                    "genre": extract_tags(item.get("Genre", [])),
-                    "director": extract_tags(item.get("Director", [])),
-                    "actor": extract_tags(item.get("Role", [])),
-                    "writer": extract_tags(item.get("Writer", [])),
-                    "year": item.get("year", ""),
-                    "studio": item.get("studio", ""),
-                    "country": item.get("country", ""),
-                    "contentRating": item.get("contentRating", ""),
-                    "originalTitle": item.get("originalTitle", ""),
-                    "tagline": item.get("tagline", ""),
-                    "originallyAvailableAt": item.get("originallyAvailableAt", ""),
-                    "addedAt": item.get("addedAt", ""),
-                    "updatedAt": item.get("updatedAt", ""),
-                    "rating": item.get("rating", 0.0) * 10,
-                    "type": item.get("type", ""),
-                    "watched": item.get("lastViewedAt", 0) > 0,
-                    "duration": item.get("duration", 0),
-                    "grandparentTitle": item.get("grandparentTitle", ""),
-                    "parentTitle": item.get("parentTitle", ""),
-                    "index": item.get("index", 0),
-                    "parentIndex": item.get("parentIndex", 0),
-                }
-            )
-        return pd.DataFrame(normalized)
+            items.extend([{
+                item.get("ratingKey", ""): PlexMediaPayload(
+                    key=item.get("ratingKey", ""),
+                    title=item.get("title", ""),
+                    summary=item.get("summary", ""),
+                    genres=[g["tag"] for g in item.get("Genre", [])] if item.get("Genre") else [],
+                    directors=[d["tag"] for d in item.get("Director", [])] if item.get("Director") else [],
+                    actors=[a["tag"] for a in item.get("Role", [])] if item.get("Role") else [],
+                    writers=[w["tag"] for w in item.get("Writer", [])] if item.get("Writer") else [],
+                    year=item.get("year", None),
+                    studio=item.get("studio", ""),
+                    rating=item.get("rating", 0.0) * 10 if item.get("rating") else 0.0,
+                    content_rating=item.get("contentRating"),
+                    type=item.get("type", ""),
+                    watched=item.get("viewCount", 0) > 0,
+                    duration_seconds=item.get("duration", 0),
+                    show_title=item.get("grandparentTitle"),
+                    season=item.get("parentTitle"),
+                    episode=item.get("index"),
+                )
+            } for item in all_items_data])
+        await media.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in items])), lambda x: x.key, False)
+        self._loaded = True
 
     async def _schedule_load_items(self):
         await self._load_items()
@@ -402,64 +391,13 @@ class PlexTextSearch(BaseTextSearch):
 
     async def find_media(
             self, 
-            section_id: int | None = None, 
-            query: str | None = None, 
-            type: str | None = None,
-            title: str | None = None,
-            year: int | None = None,
-            tagline: str | None = None,
-            writer: str | list[str] | None = None,
-            director: str | list[str] | None = None,
-            studio: str | list[str] | None = None,
-            genre: str | list[str] | None = None,
-            actor: str | list[str] | None = None,
-            grandparentTitle: str | None = None,
-            parentTitle: str | None = None,
-            index: int | None = None,
-            rating: str | None = None,
-            country: str | None = None,
-            summary: str | None = None,
-            contentRating: str | None = None,
-            watched: bool | None = None,
-    ) -> list:
-        """
-        Perform a text search on the Plex library.
-        
-        :param query: search query
-        :param section_id: optional section ID to limit search
-        :param kwargs: additional search parameters
-        :return: list of search results
-        """
-        if not self._media_items:
-            await self._schedule_load_items()
-
-        if section_id is not None:
-            items = self._media_items.get(section_id, [])
-        elif type is not None:
-            items = [item for sublist in self._media_items.values() for item in sublist if item.get("type") == type]
-        else:
-            items = [item for sublist in self._media_items.values() for item in sublist]
-        self.fit(self.flatten_media_items(items))
-        query_dict = {
-            "type": type,
-            "title": title,
-            "year": year,
-            "tagline": tagline,
-            "writer": writer,
-            "director": director,
-            "studio": studio,
-            "genre": genre,
-            "actor": actor,
-            "rating": rating,
-            "country": country,
-            "summary": summary,
-            "contentRating": contentRating,
-            "watched": watched,
-            "grandparentTitle": grandparentTitle,
-            "parentTitle": parentTitle,
-            "index": index,
-        }   
-        if query:
-            query_dict["summary"] = query
-
-        return self.search(query_dict, len(items)).to_dict(orient="records") if items else []  # type: ignore
+            query: PlexMediaQuery,
+            limit: int | None = None,
+    ) -> list[PlexMediaPayload]:
+        if not self._loaded:
+            await self._load_items()
+        media = await self.knowledge_base.media()
+        if not media:
+            return []
+        results = await media.search(query, limit=limit)
+        return [r.payload_data() for r in results]
