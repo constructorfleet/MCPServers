@@ -321,8 +321,6 @@ async def search_movies(
     if not movies:
         return f"No movies found matching filters {params.model_dump()}."
 
-    logger.info("Found %d movies matching filters: %r", len(movies), params.model_dump())
-
     results: List[str] = []
     # Validate the limit parameter
     limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
@@ -628,7 +626,6 @@ async def search_shows(
         logger.exception("search_shows failed connecting to Plex")
         return f"ERROR: Could not search Plex. {e}"
 
-    logger.info("Found %d shows matching filters: %r", len(episodes))
     # Validate the limit parameter
     limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
     results: List[str] = []

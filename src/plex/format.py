@@ -25,19 +25,13 @@ def format_movie(movie: PlexMediaPayload) -> str:
     title = movie.title
     year = movie.year
     summary = movie.summary
-    duration = (
-        movie.duration_seconds
-    )
     directors = movie.directors or "Unknown"
     actors = movie.actors or []
     rating = movie.rating
-    studio = movie.studio
 
     return (
         f"Title: {title} ({year})\n"
         f"Rating: {rating}\n"
-        f"Duration: {duration} minutes\n"
-        f"Studio: {studio}\n"
         f"Directors: {directors}\n"
         f"Starring: {actors}\n"
         f"Summary: {summary}\n"
@@ -59,11 +53,7 @@ def format_episode(episode: PlexMediaPayload) -> str:
     episode_number = episode.episode
     title = episode.title
     summary = episode.summary
-    duration = (
-        episode.duration_seconds
-    )
     rating = episode.rating or "Unrated"
-    studio = episode.studio or "Unknown Studio"
     directors = episode.directors or "Unknown Director"
     actors = episode.actors or "Unknown Actors"
     year = episode.year or "Unknown Year"
@@ -74,8 +64,6 @@ def format_episode(episode: PlexMediaPayload) -> str:
         f"Year: {year}\n"
         f"Title: {title} ({year})\n"
         f"Rating: {rating}\n"
-        f"Duration: {duration} minutes\n"
-        f"Studio: {studio}\n"
         f"Directors: {directors}\n"
         f"Starring: {actors}\n"
         f"Summary: {summary}\n"
