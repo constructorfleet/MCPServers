@@ -6,10 +6,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y --no-install-recommends software-properties-common curl gnupg lsb-release && \
     add-apt-repository ppa:deadsnakes/ppa -y && \
-    apt-get update && apt-get install -y --no-install-recommends python3.12 python3.12-venv python3.12-dev && \
-    ln -sf /usr/bin/python3.12 /usr/bin/python3 && \
-    curl -sS https://bootstrap.pypa.io/get-pip.py | python3 && \
-    pip install --upgrade pip
+    apt-get update && apt-get install -y --no-install-recommends python3.12 python3.12-venv python3.12-dev python3.12-pip && \
+    ln -sf /usr/bin/python3.12 /usr/bin/python3
 
 WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:0.7.21 /uv /uvx /bin/
@@ -17,6 +15,8 @@ COPY --from=ghcr.io/astral-sh/uv:0.7.21 /uv /uvx /bin/
 COPY --from=base /app /app
 RUN uv venv .venv && \
     . /app/.venv/bin/activate && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3 && \
+    pip install --upgrade pip && \
     cd base && \
     uv sync --active
 
