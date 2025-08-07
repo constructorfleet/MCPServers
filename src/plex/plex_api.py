@@ -3,7 +3,6 @@ import itertools
 from plexapi.server import PlexServer
 from plexapi.client import PlexClient
 from plexapi.media import Media
-import pandas as pd
 import logging
 import httpx
 from typing import (
