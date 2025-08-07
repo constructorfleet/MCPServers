@@ -125,15 +125,14 @@ class Collection(CollectionInfo, Generic[TModel]):
             wait=wait
         )
 
-    async def search(self, data: TModel, limit: int | None = None, filter: Optional[dict] = None) -> list[DataPoint[TModel]]:
-        return await self.query(self.make_document(data), limit=limit, filter=filter)
+    async def search(self, data: TModel, limit: int | None = None) -> list[DataPoint[TModel]]:
+        return await self.query(self.make_document(data), limit=limit)
 
-    async def query(self, query: str, limit: int | None = None, filter: Optional[dict] = None) -> list[DataPoint[TModel]]:
+    async def query(self, query: str, limit: int | None = None) -> list[DataPoint[TModel]]:
         result = await self.qdrant_client.query_points(
             collection_name=self.name,
             query=Document(text=query, model=self.model),
             limit=limit or 10000,
-            filter=filter
         )
         return sorted([DataPoint.model_validate({
             "payload_class": self.payload_class,
