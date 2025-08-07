@@ -91,14 +91,14 @@ class PlexMediaQuery(PlexMediaPayload):
     season: Optional[str] = None # type: ignore
     episode: Optional[int] = None # type: ignore
 
-class DataPoint(Generic[TModel], ScoredPoint):
+class DataPoint(ScoredPoint, Generic[TModel]):
     payload_class: Type[TModel]
     def payload_data(self) -> TModel:
         if not self.payload:
             raise ValueError("No payload available")
         return self.payload_class.model_validate(self.payload)
 
-class Collection(Generic[TModel], CollectionInfo):
+class Collection(CollectionInfo, Generic[TModel]):
     qdrant_client: AsyncQdrantClient
     payload_class: Type[TModel]
     make_document: Callable[[TModel], str]
@@ -142,57 +142,6 @@ class Collection(Generic[TModel], CollectionInfo):
             "payload_class": self.payload_class,
             **p.model_dump()
         }) for p in result.points], key=lambda x: x.score, reverse=True)
-
-class LazyCollections:
-    def __init__(self, qdrant_client: AsyncQdrantClient, model: str, fetch_collection: Callable[[str], Awaitable[Optional[Collection]]]):
-        self._qdrant_client = qdrant_client
-        self._model = model
-        self._fetch_collection = fetch_collection
-        self._cache: dict[str, Collection] = {}
-
-    async def _load_names(self) -> list[str]:
-        if self._names is None:
-            print("Fetching list of collection names from /collections")
-            self._names = await self._fetch_collection_names()
-        return self._names
-
-    async def _fetch_collection_names(self) -> list[str]:
-        response = await self._qdrant_client.get_collections()
-        return [collection.name for collection in response.collections]
-    
-    async def media(self) -> Optional[Collection[PlexMediaPayload]]:
-        if self._names is None:
-            await self._load_names()
-        return await self._fetch_collection("media")
-
-    def __getattr__(self, name: str):
-        async def getter():
-            if self._names is None:
-                await self._load_names()
-                
-            if not self._names:
-                raise AttributeError("No collections available")
-
-            if name not in self._names:
-                raise AttributeError(f"No such collection: {name}")
-
-            if name not in self._cache:
-                print(f"Fetching /collections/{name}")
-                collection = await self._fetch_collection(name)
-                if collection is None:
-                    raise AttributeError(f"Collection {name} not found")
-                self._cache[name] = collection
-
-            return self._cache[name]
-
-        return AwaitableProxy(getter)
-
-class AwaitableProxy:
-    def __init__(self, coro_fn: Callable[[], Awaitable]):
-        self._coro_fn = coro_fn
-
-    def __await__(self):
-        return self._coro_fn().__await__()
 
 class KnowledgeBase:
     def __init__(self, model: str, qdrant_host: str, qdrant_port: int):
