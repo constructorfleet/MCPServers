@@ -1,6 +1,26 @@
 ARG BASE_IMAGE="docker.home.prettybaked.com/constructorfleet/mcp-base"
 ARG BASE_VERSION=latest
-FROM "${BASE_IMAGE}:${BASE_VERSION}"
+FROM "${BASE_IMAGE}:${BASE_VERSION}" as base
+FROM nvidia/cuda:12.4.0-cudnn9-devel-ubuntu22.04
+
+RUN apt-get update && apt-get install -y \
+    python3.11 python3.11-venv python3.11-dev curl git build-essential && \
+    ln -sf python3.11 /usr/bin/python3 && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3 && \
+    pip install --upgrade pip
+
+COPY --from=ghcr.io/astral-sh/uv:0.7.21 /uv /uvx /bin/
+
+COPY --from=base /app /app
+RUN uv venv .venv && \
+    . /app/.venv/bin/activate && \
+    cd base && \
+    uv sync --active
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+ENTRYPOINT ["/app/base/entrypoint.sh"]
+
 ENV MCP_PACKAGE="mcp-plex"
 ENV PLEX_TOKEN=
 ENV PLEX_URL=
