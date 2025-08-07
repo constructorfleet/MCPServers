@@ -37,13 +37,16 @@ build-plex: build-base
 push-base:
 	@BASE_VERSION=$$(grep '^version =' base/pyproject.toml | cut -d'"' -f2); \
 	docker push $(BASE_IMAGE):$$BASE_VERSION
+	docker push $(BASE_IMAGE):latest
 
 push-kagi:
 	@KAGI_VERSION=$$(grep '^version =' kagi/pyproject.toml | cut -d'"' -f2); \
 	docker push $(KAGI_IMAGE):$$KAGI_VERSION
+	docker push $(KAGI_IMAGE):latest
 
 push-plex:
 	@PLEX_VERSION=$$(grep '^version =' plex/pyproject.toml | cut -d'"' -f2); \
 	docker push $(PLEX_IMAGE):$$PLEX_VERSION
+	docker push $(PLEX_IMAGE):latest
 
 push: push-base push-kagi push-plex
