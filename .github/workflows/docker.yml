@@ -45,7 +45,8 @@ jobs:
       - name: Get image name and subject
         id: image-info
         run: |
-          full=$(docker image inspect --format="{{index .RepoDigests 0}}" "${{ env.REGISTRY }}/${{ env.ORG }}/mcp-${{ matrix.package }}:latest")
+          docker image inspect --format="{{index .RepoDigests 0}}" "${{ env.REGISTRY }}/${{ env.ORG }}/mcp-${{ matrix.package }}:latest" > full.txt
+          full=$(cat full.txt)
           echo "full=$full" >> "$GITHUB_OUTPUT"
           IFS="@" read -r image digest <<< "$full"
           echo "image_name=${{ matrix.package }}" >> "$GITHUB_OUTPUT"
@@ -90,7 +91,8 @@ jobs:
       - name: Get image name and subject
         id: image-info
         run: |
-          full=$(docker image inspect --format="{{index .RepoDigests 0}}" "${{ env.REGISTRY }}/${{ env.ORG }}/mcp-${{ matrix.package }}:latest")
+          docker image inspect --format="{{index .RepoDigests 0}}" "${{ env.REGISTRY }}/${{ env.ORG }}/mcp-${{ matrix.package }}:latest > full.txt
+          full=$(cat full.txt)
           echo "full=$full" >> "$GITHUB_OUTPUT"
           IFS="@" read -r image digest <<< "$full"
           echo "image_name=${{ matrix.package }}" >> "$GITHUB_OUTPUT"
