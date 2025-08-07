@@ -364,13 +364,16 @@ class PlexTextSearch:
             self._media = media
         else:
             return None
+        movie_collection = await self.knowledge_base.movies()
+        episode_collection = await self.knowledge_base.episodes()
         sections = await self.plex.get_library_sections()
         items: list[dict] = []
+        movies: list[dict] = []
+        episodes: list[dict] = []
         for section in sections:
             sec_id = int(section["key"])
             all_items_data = await self.plex.get_library_section_contents(sec_id)
-
-            items.extend([{
+            payloads = [{
                 item.get("ratingKey", ""): PlexMediaPayload(
                     key=int(item.get("ratingKey", "")),
                     title=item.get("title", ""),
@@ -390,7 +393,13 @@ class PlexTextSearch:
                     season=item.get("parentTitle"),
                     episode=int(item.get("index")) if item.get("index") else None,
                 )
-            } for item in all_items_data])
+            } for item in all_items_data]
+            movies.extend([p for p in payloads if p and p[next(iter(p))].type == "movie"])
+            episodes.extend([p for p in payloads if p and p[next(iter(p))].type == "episode"])
+        if movie_collection:
+            asyncio.ensure_future(movie_collection.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in movies])), lambda x: x.key, False))
+        if episode_collection:
+            asyncio.ensure_future(episode_collection.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in episodes])), lambda x: x.key, False))
         if media and media.points_count and float(media.points_count) >= float(len(items))/2.0:
             _LOGGER.info("Media collection already has %d points, skipping load", media.points_count)
             self._loaded = True
@@ -414,8 +423,14 @@ class PlexTextSearch:
     ) -> list[PlexMediaPayload]:
         if not self._loaded:
             raise Exception("Items not loaded yet. Call try again in a bit.")
-        media = await self.knowledge_base.media()
+        if query.type == 'movie':
+            media = await self.knowledge_base.movies()
+        elif query.type == 'episode':
+            media = await self.knowledge_base.episodes()
+        else:
+            media = await self.knowledge_base.media()
         if not media:
             return []
         results = await media.search(query, limit=limit)
         return [r.payload_data() for r in results]
+

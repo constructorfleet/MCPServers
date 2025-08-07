@@ -47,7 +47,7 @@ class PlexMediaPayload(BaseModel):
         if item.actors:
             parts.append("Actors: " + ", ".join(item.actors))
         if item.directors:
-            parts.append("Directored by: " + ", ".join(item.directors))
+            parts.append("Directed by: " + ", ".join(item.directors))
         if item.writers:
             parts.append("Written by: " + ", ".join(item.writers))
         if item.type == 'episode' and item.show_title:
@@ -175,4 +175,18 @@ class KnowledgeBase:
         if not await self._has_collection("media"):
             return None
         return await self._fetch_collection("media", PlexMediaPayload, make_document=PlexMediaPayload.document)
+    
+    async def movies(self) -> Optional[Collection[PlexMediaPayload]]:
+        if "movies" in self._collection_cache:
+            return self._collection_cache["movies"]
+        if not await self._has_collection("movies"):
+            return None
+        return await self._fetch_collection("movies", PlexMediaPayload, make_document=PlexMediaPayload.document)
+    
+    async def episodes(self) -> Optional[Collection[PlexMediaPayload]]:
+        if "episodes" in self._collection_cache:
+            return self._collection_cache["episodes"]
+        if not await self._has_collection("episodes"):
+            return None
+        return await self._fetch_collection("episodes", PlexMediaPayload, make_document=PlexMediaPayload.document)
     
