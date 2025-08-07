@@ -45,11 +45,14 @@ jobs:
       - name: Get image name and subject
         id: image-info
         run: |
-          docker image inspect --format="{{index .RepoDigests 0}}" "${{ env.REGISTRY }}/${{ env.ORG }}/mcp-${{ matrix.package }}:latest" > full.txt
-          full="$(cat full.txt)"
-          echo "full=$full" >> "$GITHUB_OUTPUT"
+          full="$(docker image inspect --format="{{index .RepoDigests 0}}" "${{ env.REGISTRY }}/${{ env.ORG }}/mcp-${{ matrix.package }}:latest")"
+
+          # Split into image and digest
           IFS="@" read -r image digest <<< "$full"
-          echo "image_name=${{ matrix.package }}" >> "$GITHUB_OUTPUT"
+
+          # Set outputs
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+          echo "image_name=$image" >> "$GITHUB_OUTPUT"
           echo "image_digest=$digest" >> "$GITHUB_OUTPUT"
 
       # This step generates an artifact attestation for the image, which is an unforgeable statement about where and how it was built. It increases supply chain security for people who consume the image. For more information, see [Using artifact attestations to establish provenance for builds](/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds).
@@ -91,11 +94,14 @@ jobs:
       - name: Get image name and subject
         id: image-info
         run: |
-          docker image inspect --format="{{index .RepoDigests 0}}" "${{ env.REGISTRY }}/${{ env.ORG }}/mcp-${{ matrix.package }}:latest" > full.txt
-          full="$(cat full.txt)"
-          echo "full=$full" >> "$GITHUB_OUTPUT"
+          full="$(docker image inspect --format="{{index .RepoDigests 0}}" "${{ env.REGISTRY }}/${{ env.ORG }}/mcp-${{ matrix.package }}:latest")"
+
+          # Split into image and digest
           IFS="@" read -r image digest <<< "$full"
-          echo "image_name=${{ matrix.package }}" >> "$GITHUB_OUTPUT"
+
+          # Set outputs
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+          echo "image_name=$image" >> "$GITHUB_OUTPUT"
           echo "image_digest=$digest" >> "$GITHUB_OUTPUT"
 
       # This step generates an artifact attestation for the image, which is an unforgeable statement about where and how it was built. It increases supply chain security for people who consume the image. For more information, see [Using artifact attestations to establish provenance for builds](/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds).
