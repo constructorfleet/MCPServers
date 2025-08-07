@@ -1,9 +1,11 @@
-from typing import Generic, Literal, Optional, Type, TypeVar, get_type_hints
+from re import M
+from typing import Generic, Literal, Optional, Sequence, Type, TypeVar, cast, get_type_hints
 from click import Option
 from pydantic import BaseModel, create_model, ConfigDict
 from qdrant_client.async_qdrant_client import AsyncQdrantClient
 from qdrant_client.models import  CollectionInfo, Document, ScoredPoint
 from qdrant_client.conversions.common_types import Points
+from qdrant_client.http.models import Filter, MinShould, FieldCondition, MatchPhrase
 
 import asyncio
 from typing import Callable, Awaitable
@@ -39,9 +41,9 @@ class PlexMediaPayload(BaseModel):
     def document(cls, item: "PlexMediaPayload") -> str:
         parts = []
         if item.title:
-            parts = [item.title]
+            parts.append("Title: " + item.title)
         if item.summary:
-            parts.append(item.summary)
+            parts.append("Summary: " + item.summary)
         if item.genres:
             parts.append("Genres: " + ", ".join(item.genres))
         if item.actors:
@@ -59,12 +61,17 @@ class PlexMediaPayload(BaseModel):
                 season_episode.append(f"Episode {item.episode}")
             if season_episode:
                 parts.append(" ".join(season_episode))
-        if item.year:
-            parts.append(f"Year: {item.year}")
         if item.rating:
-            parts.append(f"Rating: {item.rating}")
-        if item.watched is not None:
-            parts.append(f"Watched: {'Yes' if item.watched else 'No'}")
+            if item.rating > 90:
+                parts.append(f"Rating: Excellent")
+            elif item.rating > 75:
+                parts.append(f"Rating: Great")
+            elif item.rating > 50:
+                parts.append(f"Rating: Good")
+            elif item.rating > 25:
+                parts.append(f"Rating: Okay")
+            else:
+                parts.append(f"Rating: Bad")
         return "\n".join(parts)
 
 class PlexMediaQuery(PlexMediaPayload):
@@ -85,6 +92,7 @@ class PlexMediaQuery(PlexMediaPayload):
     show_title: Optional[str] = None # type: ignore
     season: Optional[str] = None # type: ignore
     episode: Optional[int] = None # type: ignore
+    similar_to: Optional[int] = None # type: ignore
 
 class DataPoint(ScoredPoint, Generic[TModel]):
     payload_class: Type[TModel]
@@ -125,8 +133,33 @@ class Collection(CollectionInfo, Generic[TModel]):
             wait=wait
         )
 
-    async def search(self, data: TModel, limit: int | None = None) -> list[DataPoint[TModel]]:
-        return await self.query(self.make_document(data), limit=limit)
+    async def search(self, data: PlexMediaPayload, limit: int | None = None) -> list[DataPoint[TModel]]:
+        conditions: list = []
+        if data.title:
+            conditions.append(FieldCondition(key="title", match=MatchPhrase(phrase=data.title)))
+        if data.show_title:
+            conditions.append(FieldCondition(key="show_title", match=MatchPhrase(phrase=data.show_title)))
+        if data.genres:
+            for genre in data.genres:
+                conditions.append(FieldCondition(key="genres", match=MatchPhrase(phrase=genre)))
+        result = await self.qdrant_client.query_points(
+            collection_name=self.name,
+            query=Document(text=PlexMediaPayload.document(cast(PlexMediaPayload, data)), model=self.model),
+            query_filter=Filter(
+                should=[],
+                must=[],
+                must_not=[],
+                min_should=MinShould(
+                    conditions=conditions,
+                    min_count=1,
+                )
+            ),
+            limit=limit or 10000,
+        )
+        return sorted([DataPoint.model_validate({
+            "payload_class": self.payload_class,
+            **p.model_dump()
+        }) for p in result.points], key=lambda x: x.score, reverse=True)
 
     async def query(self, query: str, limit: int | None = None) -> list[DataPoint[TModel]]:
         result = await self.qdrant_client.query_points(

@@ -1566,10 +1566,10 @@ async def get_movie_recommendations(
                 type='movie',
                 title=title,
                 year=year,
-                directors=director.split(",") if director else similar_movie["directors"] if "directors" in similar_movie else None,
+                directors=director.split(",") if director else None,
                 genres=genre.split(",") if genre else similar_movie["genres"] if "genres" in similar_movie else None,
-                actors=actor.split(",") if actor else similar_movie["actors"] if "actors" in similar_movie else None,
-                content_rating=content_rating if content_rating else similar_movie["content_rating"],
+                actors=actor.split(",") if actor else None,
+                content_rating=content_rating if content_rating else None,
                 watched=watched
             )
             start_index = 1
@@ -1768,14 +1768,14 @@ async def get_show_recommendations(
                         else None
                     )
                 ),
-                directors=director.split(",") if director else similar_episode["directors"] if "directors" in similar_episode else None,
+                directors=director.split(",") if director else None,
                 genres=(
                     genre.split(",") if genre else similar_episode["genres"] if "genres" in similar_episode else None
                 ),
-                actors=actor.split(",") if actor else similar_episode["actors"] if "actors" in similar_episode else None,
-                content_rating=content_rating if content_rating else similar_episode["content_rating"] if "content_rating" in similar_episode else None,
+                actors=actor.split(",") if actor else None,
+                content_rating=content_rating if content_rating else None,
                 watched=watched,
-                season=f"Season {season}" if season else similar_episode["season"] if "season" in similar_episode else None,
+                season=f"Season {season}" if season else None,
                 episode=episode,
             )
             start_index = 1
