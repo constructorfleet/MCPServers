@@ -46,6 +46,7 @@ jobs:
         id: image-info
         run: |
           full=$(docker image inspect --format="{{index .RepoDigests 0}}" "${{ env.REGISTRY }}/${{ env.ORG }}/mcp-${{ matrix.package }}:latest")
+          echo "full=$full" >> "$GITHUB_OUTPUT"
           IFS="@" read -r image digest <<< "$full"
           echo "image_name=${{ matrix.package }}" >> "$GITHUB_OUTPUT"
           echo "image_digest=$digest" >> "$GITHUB_OUTPUT"
@@ -90,6 +91,7 @@ jobs:
         id: image-info
         run: |
           full=$(docker image inspect --format="{{index .RepoDigests 0}}" "${{ env.REGISTRY }}/${{ env.ORG }}/mcp-${{ matrix.package }}:latest")
+          echo "full=$full" >> "$GITHUB_OUTPUT"
           IFS="@" read -r image digest <<< "$full"
           echo "image_name=${{ matrix.package }}" >> "$GITHUB_OUTPUT"
           echo "image_digest=$digest" >> "$GITHUB_OUTPUT"
