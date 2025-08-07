@@ -396,14 +396,26 @@ class PlexTextSearch:
             } for item in all_items_data]
             movies.extend([p for p in payloads if p and p[next(iter(p))].type == "movie"])
             episodes.extend([p for p in payloads if p and p[next(iter(p))].type == "episode"])
-        if movie_collection:
-            asyncio.ensure_future(movie_collection.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in movies])), lambda x: x.key, False))
-        if episode_collection:
-            asyncio.ensure_future(episode_collection.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in episodes])), lambda x: x.key, False))
+        async def upsert_collections(
+            movie_collection: Optional[Collection[PlexMediaPayload]],
+            episode_collection: Optional[Collection[PlexMediaPayload]],
+            movies: list[dict[str, PlexMediaPayload]],
+            episodes: list[dict[str, PlexMediaPayload]],
+        ):
+            if movie_collection:
+                await movie_collection.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in movies])), lambda x: x.key, False)
+            if episode_collection:
+                await episode_collection.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in episodes])), lambda x: x.key, False)
+        asyncio.create_task(upsert_collections(
+            movie_collection,
+            episode_collection,
+            movies,
+            episodes
+        ))
         if media and media.points_count and float(media.points_count) >= float(len(items))/2.0:
             _LOGGER.info("Media collection already has %d points, skipping load", media.points_count)
             self._loaded = True
-            asyncio.ensure_future(media.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in items])), lambda x: x.key, False))
+            asyncio.create_task(media.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in items])), lambda x: x.key, False))
             return
         _LOGGER.info("Upserting %d items into media collection", len(items))
         await media.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in items])), lambda x: x.key, False)
