@@ -3,8 +3,10 @@ ARG BASE_VERSION=latest
 FROM "${BASE_IMAGE}:${BASE_VERSION}" AS base
 FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
 
-RUN apt-get update && apt-get install -y \
-    python3.12 python3.12-venv python3.12-dev curl git build-essential && \
+RUN apt-get update && \
+    add-apt-repository ppa:deadsnakes/ppa -y && \
+    apt-get update && apt-get install -y \
+        python3.12 python3.12-venv python3.12-dev curl git build-essential && \
     ln -sf python3.12 /usr/bin/python3 && \
     curl -sS https://bootstrap.pypa.io/get-pip.py | python3 && \
     pip install --upgrade pip
