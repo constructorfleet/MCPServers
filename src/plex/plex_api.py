@@ -265,6 +265,20 @@ class PlexAPI:
             kwargs = SearchParameters()
         kwargs["type"] = "movie"
         return await self._get_all_items(section_id, **kwargs)
+    
+    async def get_new_movies(
+        self,
+    ) -> list:
+        """Get recently added movies."""
+        data = await self._make_request("GET", "/library/sections/1/recentlyAdded")
+        return data.get("MediaContainer", {}).get("Metadata", []) if data.get("MediaContainer", {}).get("Metadata") else []
+    
+    async def get_new_episodes(
+        self,
+    ) -> list:
+        """Get recently added episodes."""
+        data = await self._make_request("GET", "/library/sections/2/recentlyAdded")
+        return data.get("MediaContainer", {}).get("Metadata", []) if data.get("MediaContainer", {}).get("Metadata") else []
 
     async def get_all_shows(
         self, section_id: int | None = None, **kwargs: Unpack[SearchParameters]

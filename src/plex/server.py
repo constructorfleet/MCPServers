@@ -92,7 +92,7 @@ async def health(request: Request) -> Response:
         return Response("ERROR", status_code=500, media_type="text/plain")
 
 
-# --- Tool Methods ---
+
 # @mcp.tool(
 #     name="fallback_search",
 #     description="A fallback search for movies, shows, episodes, and more across the entire Plex library when other searches fail.",
@@ -372,7 +372,6 @@ async def get_movie_details(
             return f"No movie found with key {movie_key}."
         payload = PlexMediaPayload(
             key=int(movie["ratingKey"]),
-            key=int(movie["ratingKey"]),
             title=movie["title"],
             summary=movie["summary"],
             year=int(movie["year"]) if movie["year"] else 0,
@@ -399,42 +398,56 @@ async def get_movie_details(
         return f"ERROR: Failed to fetch movie details. {str(e)}"
 
 
-# @mcp.tool(
-#     name="get_new_movies",
-#     description="Get a list of recently added movies in your Plex library.",
-#     annotations=ToolAnnotations(
-#         title="Get New Movies",
-#     ),
-# )
-# async def get_new_movies() -> str:
-#     """
-#     Get list of recently added movies in your Plex library.
+@mcp.tool(
+    name="get_new_movies",
+    description="Get a list of recently added movies in your Plex library.",
+    annotations=ToolAnnotations(
+        title="Get New Movies",
+    ),
+)
+async def get_new_movies() -> str:
+    """
+    Get list of recently added movies in your Plex library.
 
-#     Returns:
-#         A formatted string with the new movie details or an error message.
-#     """
-#     try:
-#         plex = await get_plex_server()
-#     except Exception as e:
-#         return f"ERROR: Could not connect to Plex server. {str(e)}"
-
-#     try:
-#         library_section = movie_section(plex)
-#         if not library_section:
-#             return "ERROR: No movie section found in your Plex library."
-#         movies = await asyncio.to_thread(library_section.recentlyAdded, 10)  # type: ignore
-
-#         if not movies:
-#             return "No new movies found in your Plex library."
-#         results: List[str] = []
-#         for i, m in enumerate(movies[:10], start=1):
-#             results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
-#         logger.info(("Returning %s new movies.", "\n---\n".join(results)))
-#         return "\n---\n".join(results)
-#     except Exception as e:
-#         logger.exception("Failed to fetch new movie list.")
-#         return f"ERROR: Failed to fetch new movie list. {str(e)}"
-
+    Returns:
+        A formatted string with the new movie details or an error message.
+    """
+    if not plex_api:
+        return "ERROR: Plex API is not initialized."
+    try:
+        movies = await plex_api.get_new_movies()
+        if not movies:
+            return "No new movies found in your Plex library."
+        movies = [
+            PlexMediaPayload(
+                key=int(m["ratingKey"]),
+                title=m["title"],
+                summary=m["summary"],
+                year=int(m["year"]) if m["year"] else 0,
+                rating=float(m["rating"]) * 10.0 if m["rating"] else 0.0,
+                watched=m["isWatched"],
+                type='movie',
+                genres=[g.tag for g in m["Genre"]] if m["Genre"] else [],
+                actors=[a.tag for a in m["Actor"]] if m["Actor"] else [],
+                studio=m["studio"] or "",
+                directors=[d.tag for d in m["Director"]] if m["Director"] else [],
+                writers=[w.tag for w in m["Writer"]] if m["Writer"] else [],
+                duration_seconds=(m["duration"] // 1000) if m["duration"] else 0,
+                content_rating=m["contentRating"] if "contentRating" in m else None,
+                show_title=None,
+                season=None,
+                episode=None,
+            )
+            for m
+            in movies
+        ]
+        results: List[str] = []
+        for i, m in enumerate(movies[:10], start=1):
+            results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
+        logger.info(("Returning %s new movies.", "\n---\n".join(results)))
+        return "\n---\n".join(results)
+    except Exception as e:
+        return f"ERROR: Could not connect to Plex server. {str(e)}"
 
 @mcp.tool(
     name="search_shows",
@@ -684,41 +697,56 @@ async def get_episode_details(
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
 
-# @mcp.tool(
-#     name="get_new_shows",
-#     description="Get a list of recently added episodes in your Plex library.",
-#     annotations=ToolAnnotations(
-#         title="Get New Shows",
-#     ),
-# )
-# async def get_new_shows() -> str:
-#     """
-#     Get list of recently added episodes in your Plex library.
+@mcp.tool(
+    name="get_new_shows",
+    description="Get a list of recently added episodes in your Plex library.",
+    annotations=ToolAnnotations(
+        title="Get New Shows",
+    ),
+)
+async def get_new_shows() -> str:
+    """
+    Get list of recently added episodes in your Plex library.
 
-#     Returns:
-#         A formatted string with the new episodes details or an error message.
-#     """
-#     try:
-#         plex = await get_plex_server()
-#     except Exception as e:
-#         return f"ERROR: Could not connect to Plex server. {str(e)}"
-
-#     try:
-#         library_section = show_section(plex)
-#         if not library_section:
-#             return "ERROR: No show section found in your Plex library."
-#         episodes = await asyncio.to_thread(library_section.recentlyAdded, 10)  # type: ignore
-#         logger.info("Found %d new episodes.", len(episodes))
-#         if not episodes:
-#             return "No new episodes found in your Plex library."
-#         results: List[str] = []
-#         for i, m in enumerate(episodes[:10], start=1):
-#             results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
-#         logger.info("Returning %s new episodes.", "\n---\n".join(results))
-#         return "\n---\n".join(results)
-#     except Exception as e:
-#         logger.exception("Failed to fetch new episode list.")
-#         return f"ERROR: Failed to fetch new episode list. {str(e)}"
+    Returns:
+        A formatted string with the new episodes details or an error message.
+    """
+    if not plex_api:
+        return "ERROR: Plex API is not initialized."
+    try:
+        episodes = await plex_api.get_new_episodes()
+        if not episodes:
+            return "No new episodes found in your Plex library."
+        episodes = [
+            PlexMediaPayload(
+                key=int(e["ratingKey"]),
+                title=e["title"],
+                summary=e["summary"],
+                year=int(e["year"]) if e["year"] else 0,
+                rating=float(e["rating"]) * 10.0 if e["rating"] else 0.0,
+                watched=e["isWatched"],
+                type='episode',
+                genres=[g.tag for g in e["Genre"]] if e["Genre"] else [],
+                actors=[a.tag for a in e["Actor"]] if e["Actor"] else [],
+                studio=e["studio"] or "",
+                directors=[d.tag for d in e["Director"]] if e["Director"] else [],
+                writers=[w.tag for w in e["Writer"]] if e["Writer"] else [],
+                duration_seconds=(e["duration"] // 1000) if e["duration"] else 0,
+                content_rating=e["contentRating"] if "contentRating" in e else None,
+                show_title=e["grandparentTitle"] if "grandparentTitle" in e else None,
+                season=e["parentTitle"] if "parentTitle" in e and e["parentTitle"] else None,
+                episode=int(e["index"]) if "index" in e and e["index"] else None,
+            )
+            for e
+            in episodes
+        ]
+        results: List[str] = []
+        for i, m in enumerate(episodes[:10], start=1):
+            results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
+        logger.info("Returning %s new episodes.", "\n---\n".join(results))
+        return "\n---\n".join(results)
+    except Exception as e:
+        return f"ERROR: Could not connect to Plex server. {str(e)}"
 
 
 @mcp.tool(
