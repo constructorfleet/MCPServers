@@ -9,7 +9,6 @@ to handle non-blocking I/O and to provide informative error messages.
 import argparse
 import asyncio
 from calendar import c
-from dataclasses import asdict
 from enum import StrEnum
 import logging
 
@@ -320,9 +319,9 @@ async def search_movies(
         return f"ERROR: Could not search Plex. {e}"
 
     if not movies:
-        return f"No movies found matching filters {asdict(params)}."
+        return f"No movies found matching filters {params.model_dump()}."
 
-    logger.info("Found %d movies matching filters: %r", len(movies), asdict(params))
+    logger.info("Found %d movies matching filters: %r", len(movies), params.model_dump())
 
     results: List[str] = []
     # Validate the limit parameter
