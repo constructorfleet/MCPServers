@@ -145,17 +145,21 @@ class Collection(CollectionInfo, Generic[TModel]):
                 shoulds.append(FieldCondition(key="genres", match=MatchPhrase(phrase=genre)))
         if data.watched is not None:
             musts.append(FieldCondition(key="watched", match=MatchValue(value=data.watched)))
+        if data.actors:
+            for actor in data.actors:
+                musts.append(FieldCondition(key="actors", match=MatchPhrase(phrase=actor)))
+        if data.directors:
+            for director in data.directors:
+                musts.append(FieldCondition(key="directors", match=MatchPhrase(phrase=director)))
         result = await self.qdrant_client.query_points(
             collection_name=self.name,
             query=Document(text=PlexMediaPayload.document(cast(PlexMediaPayload, data)), model=self.model, options={"cuda": True}),
             query_filter=Filter(
-                should=[],
-                must=[],
-                must_not=[],
+                must=musts if len(musts) > 0 else None,
                 min_should=MinShould(
                     conditions=shoulds,
                     min_count=1,
-                )
+                ) if len(shoulds) > 0 else None,
             ),
             limit=limit or 10000,
         )
