@@ -1,3 +1,4 @@
+import json
 from re import M
 from typing import Generic, Literal, Optional, Sequence, Type, TypeVar, cast, get_type_hints
 from click import Option
@@ -6,9 +7,11 @@ from qdrant_client.async_qdrant_client import AsyncQdrantClient
 from qdrant_client.models import  CollectionInfo, Document, ScoredPoint
 from qdrant_client.conversions.common_types import Points
 from qdrant_client.http.models import Filter, MinShould, FieldCondition, MatchPhrase, MatchValue
-
+import logging
 import asyncio
 from typing import Callable, Awaitable
+
+_LOGGER = logging.getLogger(__name__)
 
 TModel = TypeVar("TModel", bound=BaseModel)
 T = TypeVar("T")
@@ -151,16 +154,19 @@ class Collection(CollectionInfo, Generic[TModel]):
         if data.directors:
             for director in data.directors:
                 musts.append(FieldCondition(key="directors", match=MatchPhrase(phrase=director)))
+        query_filter = Filter(
+            must=musts if len(musts) > 0 else None,
+            min_should=MinShould(
+                conditions=shoulds,
+                min_count=1,
+            ) if len(shoulds) > 0 else None,
+        )
+        query=Document(text=self.make_document(data), model=self.model, options={"cuda": True})  # type: ignore
+        _LOGGER.warn(f"Searching collection {self.name} with filter: {json.dumps(query_filter.model_dump(exclude_none=True), indent=2)} and query: {json.dumps(query.model_dump(exclude_none=True), indent=2)}")
         result = await self.qdrant_client.query_points(
             collection_name=self.name,
-            query=Document(text=PlexMediaPayload.document(cast(PlexMediaPayload, data)), model=self.model, options={"cuda": True}),
-            query_filter=Filter(
-                must=musts if len(musts) > 0 else None,
-                min_should=MinShould(
-                    conditions=shoulds,
-                    min_count=1,
-                ) if len(shoulds) > 0 else None,
-            ),
+            query=query,
+            query_filter=query_filter,
             limit=limit or 10000,
         )
         return sorted([DataPoint.model_validate({
