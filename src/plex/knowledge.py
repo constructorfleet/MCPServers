@@ -826,19 +826,23 @@ class Collection(CollectionInfo, Generic[TModel]):
             )  # type: ignore
             sparse_vec = _sparse_from_text(doc_text)
             prelimit = max(self.fusion_prelimit, (limit or 50) * 3)
-            # Dense-only
-            d_res = await self.qdrant_client.query_points(
-                collection_name=self.name,
-                query=dense_doc,
-                query_filter=query_filter,
-                limit=prelimit,
-            )
-            # Sparse-only (no dense query)
-            s_res = await self.qdrant_client.query_points(
-                collection_name=self.name,
-                sparse_vector=sparse_vec,
-                query_filter=query_filter,
-                limit=prelimit,
+            d_res, s_res = await asyncio.gather(
+                *[
+                    self.qdrant_client.query_points(
+                        collection_name=self.name,
+                        query=dense_doc,
+                        using="dense",
+                        query_filter=query_filter,
+                        limit=prelimit,
+                    ),
+                    self.qdrant_client.query_points(
+                        collection_name=self.name,
+                        query=sparse_vec,
+                        using="sparse",
+                        query_filter=query_filter,
+                        limit=prelimit,
+                    ),
+                ]
             )
             fused_points = self._fuse_two_pass(
                 list(d_res.points),
@@ -868,13 +872,14 @@ class Collection(CollectionInfo, Generic[TModel]):
         )
         doc_text = self.make_document(data)
         query = Document(text=doc_text, model=self.model, options={"cuda": True})  # type: ignore
-        sparse = _sparse_from_text(doc_text) if use_sparse else None
+        sparse = _sparse_from_text(doc_text)
         _LOGGER.warn(
             f"Searching collection {self.name} with filter: {json.dumps(query_filter.model_dump(exclude_none=True), indent=2)} and query: {json.dumps(query.model_dump(exclude_none=True), indent=2)}"
         )
         result = await self.qdrant_client.query_points(
             collection_name=self.name,
-            query=query,
+            query=sparse if use_sparse else query,
+            using="dense",
             prefetch=Prefetch(query=sparse) if sparse is not None else None,
             query_filter=query_filter,
             limit=limit or 10000,
