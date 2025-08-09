@@ -43,15 +43,18 @@ class Command:
         async def call(**kwargs):
             try:
                 annotations = get_type_hints(self.schema)
+            # trunk-ignore(ruff/E722)
             except:
                 annotations = {}
             for k, expected in annotations.items():
                 if k not in kwargs:
                     raise TypeError(f"Missing required argument: {k}")
                 if not isinstance(
-                    kwargs[k], expected.__args__[0] if hasattr(expected, "__args__") else expected
+                    kwargs[k], expected.__args__[0] if hasattr(
+                        expected, "__args__") else expected
                 ):
-                    raise TypeError(f"{k} must be {expected}, got {type(kwargs[k])}")
+                    raise TypeError(
+                        f"{k} must be {expected}, got {type(kwargs[k])}")
             if self.transform:
                 kwargs = self.transform(kwargs)
             return await http_client(controller_path, self.path, params=kwargs)
@@ -59,7 +62,8 @@ class Command:
         return call
 
     def __call__(self, *args: Any, **kwds: Any) -> Any:
-        raise RuntimeError("Commands must be called via a Controller instance.")
+        raise RuntimeError(
+            "Commands must be called via a Controller instance.")
 
 
 class ControllerMeta(type):
@@ -76,14 +80,16 @@ class Controller(metaclass=ControllerMeta):
     def __init__(self, send_request: Callable[[str, str, str], Any]) -> None:
         self.send_request = send_request
         for name, cmd in self._commands.items():  # type: ignore
-            bound = cmd.bind(self._controller_path, self.send_request)  # type: ignore
+            bound = cmd.bind(self._controller_path,
+                             self.send_request)  # type: ignore
             setattr(self, name, bound)
 
     def __getattr__(self, name: str):
         cmd = self._commands.get(name)
         if cmd:
             return cmd.bind(self._controller_path, self._http_client)
-        raise AttributeError(f"{self.__class__.__name__} has no command '{name}'")
+        raise AttributeError(
+            f"{self.__class__.__name__} has no command '{name}'")
 
 
 class Playback(Controller, path="playback"):
@@ -93,12 +99,15 @@ class Playback(Controller, path="playback"):
         self.play = Command(path="play", schema={"id": str}).bind(
             self._controller_path, self.send_request
         )
-        self.pause = Command(path="pause").bind(self._controller_path, self.send_request)
-        self.stop = Command(path="stop").bind(self._controller_path, self.send_request)
+        self.pause = Command(path="pause").bind(
+            self._controller_path, self.send_request)
+        self.stop = Command(path="stop").bind(
+            self._controller_path, self.send_request)
         self.seek_to = Command(path="seekTo", schema={"position": int}).bind(
             self._controller_path, self.send_request
         )
-        self.skip_next = Command(path="skipNext").bind(self._controller_path, self.send_request)
+        self.skip_next = Command(path="skipNext").bind(
+            self._controller_path, self.send_request)
         self.skip_previous = Command(path="skipPrevious").bind(
             self._controller_path, self.send_request
         )
@@ -133,22 +142,35 @@ class Playback(Controller, path="playback"):
 class Navigation(Controller, path="navigation"):
     def __init__(self, http_client: Any):
         super().__init__(http_client)
-        self.move_up = Command(path="moveUp").bind(self._controller_path, self.send_request)
-        self.move_down = Command(path="moveDown").bind(self._controller_path, self.send_request)
-        self.move_left = Command(path="moveLeft").bind(self._controller_path, self.send_request)
-        self.move_right = Command(path="moveRight").bind(self._controller_path, self.send_request)
-        self.select = Command(path="select").bind(self._controller_path, self.send_request)
-        self.back = Command(path="back").bind(self._controller_path, self.send_request)
-        self.home = Command(path="home").bind(self._controller_path, self.send_request)
+        self.move_up = Command(path="moveUp").bind(
+            self._controller_path, self.send_request)
+        self.move_down = Command(path="moveDown").bind(
+            self._controller_path, self.send_request)
+        self.move_left = Command(path="moveLeft").bind(
+            self._controller_path, self.send_request)
+        self.move_right = Command(path="moveRight").bind(
+            self._controller_path, self.send_request)
+        self.select = Command(path="select").bind(
+            self._controller_path, self.send_request)
+        self.back = Command(path="back").bind(
+            self._controller_path, self.send_request)
+        self.home = Command(path="home").bind(
+            self._controller_path, self.send_request)
         self.context_menu = Command(path="contextMenu").bind(
             self._controller_path, self.send_request
         )
-        self.show_osd = Command(path="showOSD").bind(self._controller_path, self.send_request)
-        self.hide_osd = Command(path="hideOSD").bind(self._controller_path, self.send_request)
-        self.toggle_osd = Command(path="toggleOSD").bind(self._controller_path, self.send_request)
-        self.page_up = Command(path="pageUp").bind(self._controller_path, self.send_request)
-        self.page_down = Command(path="pageDown").bind(self._controller_path, self.send_request)
-        self.next_letter = Command(path="nextLetter").bind(self._controller_path, self.send_request)
+        self.show_osd = Command(path="showOSD").bind(
+            self._controller_path, self.send_request)
+        self.hide_osd = Command(path="hideOSD").bind(
+            self._controller_path, self.send_request)
+        self.toggle_osd = Command(path="toggleOSD").bind(
+            self._controller_path, self.send_request)
+        self.page_up = Command(path="pageUp").bind(
+            self._controller_path, self.send_request)
+        self.page_down = Command(path="pageDown").bind(
+            self._controller_path, self.send_request)
+        self.next_letter = Command(path="nextLetter").bind(
+            self._controller_path, self.send_request)
         self.previous_letter = Command(path="previousLetter").bind(
             self._controller_path, self.send_request
         )
@@ -375,7 +397,8 @@ class PlexAPI:
         playlists = response.get("MediaContainer", {}).get("Metadata", [])
         for playlist in playlists:
             items = await self._make_request("GET", playlist["key"])
-            playlist["items"] = items.get("MediaContainer", {}).get("Metadata", [])
+            playlist["items"] = items.get(
+                "MediaContainer", {}).get("Metadata", [])
         return playlists
 
     async def get_client(self, machine_identifier: str) -> PlexClient | None:
@@ -436,33 +459,42 @@ class PlexTextSearch:
                         title=item.get("title", ""),
                         summary=item.get("summary", ""),
                         genres=(
-                            [g["tag"] for g in item.get("Genre", [])] if item.get("Genre") else []
+                            [g["tag"] for g in item.get("Genre", [])] if item.get(
+                                "Genre") else []
                         ),
                         directors=(
                             [d["tag"] for d in item.get("Director", [])]
                             if item.get("Director")
                             else []
                         ),
-                        actors=[a["tag"] for a in item.get("Role", [])] if item.get("Role") else [],
+                        actors=[a["tag"] for a in item.get(
+                            "Role", [])] if item.get("Role") else [],
                         writers=(
-                            [w["tag"] for w in item.get("Writer", [])] if item.get("Writer") else []
+                            [w["tag"] for w in item.get("Writer", [])] if item.get(
+                                "Writer") else []
                         ),
-                        year=int(item.get("year")) if item.get("year", None) else 0,
+                        year=int(item.get("year")) if item.get(
+                            "year", None) else 0,
                         studio=item.get("studio", ""),
-                        rating=float(item.get("rating", 0.0)) * 10 if item.get("rating") else 0.0,
+                        rating=float(item.get("rating", 0.0)) *
+                        10 if item.get("rating") else 0.0,
                         content_rating=item.get("contentRating"),
                         type=item.get("type", ""),
                         watched=item.get("viewCount", 0) > 0,
                         duration_seconds=int(item.get("duration", 0)),
                         show_title=item.get("grandparentTitle"),
-                        season=int(item.get("parentIndex")) if item.get("parentTitle") else None,
-                        episode=int(item.get("index")) if item.get("index") else None,
+                        season=int(item.get("parentIndex")) if item.get(
+                            "parentTitle") else None,
+                        episode=int(item.get("index")) if item.get(
+                            "index") else None,
                     )
                 }
                 for item in all_items_data
             ]
-            movies.extend([p for p in payloads if p and p[next(iter(p))].type == "movie"])
-            episodes.extend([p for p in payloads if p and p[next(iter(p))].type == "episode"])
+            movies.extend(
+                [p for p in payloads if p and p[next(iter(p))].type == "movie"])
+            episodes.extend(
+                [p for p in payloads if p and p[next(iter(p))].type == "episode"])
 
         async def upsert_collections(
             movie_collection: Optional[Collection[PlexMediaPayload]],
@@ -472,19 +504,22 @@ class PlexTextSearch:
         ):
             if movie_collection:
                 await movie_collection.upsert_data(
-                    list(itertools.chain.from_iterable([list(d.values()) for d in movies])),
+                    list(itertools.chain.from_iterable(
+                        [list(d.values()) for d in movies])),
                     lambda x: x.key,
                     False,
                 )
             if episode_collection:
                 await episode_collection.upsert_data(
-                    list(itertools.chain.from_iterable([list(d.values()) for d in episodes])),
+                    list(itertools.chain.from_iterable(
+                        [list(d.values()) for d in episodes])),
                     lambda x: x.key,
                     False,
                 )
 
         asyncio.create_task(
-            upsert_collections(movie_collection, episode_collection, movies, episodes)
+            upsert_collections(
+                movie_collection, episode_collection, movies, episodes)
         )
         if media and media.points_count and float(media.points_count) >= float(len(items)) / 2.0:
             _LOGGER.info(
@@ -493,7 +528,8 @@ class PlexTextSearch:
             self._loaded = True
             asyncio.create_task(
                 media.upsert_data(
-                    list(itertools.chain.from_iterable([list(d.values()) for d in items])),
+                    list(itertools.chain.from_iterable(
+                        [list(d.values()) for d in items])),
                     lambda x: x.key,
                     False,
                 )
@@ -501,7 +537,8 @@ class PlexTextSearch:
             return
         _LOGGER.info("Upserting %d items into media collection", len(items))
         await media.upsert_data(
-            list(itertools.chain.from_iterable([list(d.values()) for d in items])),
+            list(itertools.chain.from_iterable(
+                [list(d.values()) for d in items])),
             lambda x: x.key,
             False,
         )

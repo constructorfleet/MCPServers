@@ -129,26 +129,26 @@ async def ensure_collection(
     _LOGGER.warning(f"Ensuring collection '{name}' exists with {dim} dimensions.")
     collections = await client.get_collections()
     if any(c.name == name for c in collections.collections):
-        recreate = False
-        collection = await client.get_collection(name)
-        if not collection.config.params.vectors:
-            recreate = True
-        elif not isinstance(collection.config.params.vectors, dict):
-            recreate = True
-        elif not collection.config.params.vectors.get("dense"):
-            recreate = True
-        elif collection.config.params.vectors["dense"].size != dim:
-            recreate = True
-        elif not collection.config.params.sparse_vectors:
-            recreate = True
-        elif not isinstance(collection.config.params.sparse_vectors, dict):
-            recreate = True
-        elif collection.config.params.sparse_vectors.get("sparse"):
-            recreate = True
-        if not recreate:
-            return
-        _LOGGER.warning(f"Deleting collection '{name}'")
-        await client.delete_collection(name)
+        return
+        # collection = await client.get_collection(name)
+        # if not collection.config.params.vectors:
+        #     recreate = True
+        # elif not isinstance(collection.config.params.vectors, dict):
+        #     recreate = True
+        # elif not collection.config.params.vectors.get("dense"):
+        #     recreate = True
+        # elif collection.config.params.vectors["dense"].size != dim:
+        #     recreate = True
+        # elif not collection.config.params.sparse_vectors:
+        #     recreate = True
+        # elif not isinstance(collection.config.params.sparse_vectors, dict):
+        #     recreate = True
+        # elif collection.config.params.sparse_vectors.get("sparse"):
+        #     recreate = True
+        # if not recreate:
+        #     return
+        # _LOGGER.warning(f"Deleting collection '{name}'")
+        # await client.delete_collection(name)
     _LOGGER.warning(f"Creating collection '{name}'")
     await client.create_collection(
         collection_name=name,
@@ -881,8 +881,12 @@ class Collection(CollectionInfo, Generic[TModel]):
         result = await self.qdrant_client.query_points(
             collection_name=self.name,
             query=sparse if use_sparse else query,
-            using="dense",
-            prefetch=Prefetch(query=sparse, using="sparse") if sparse is not None else None,
+            using="sparse" if use_sparse else "dense",
+            prefetch=(
+                Prefetch(query=sparse, using="sparse")
+                if not use_sparse and sparse is not None
+                else None
+            ),
             query_filter=query_filter,
             limit=limit or 10000,
             with_payload=True,

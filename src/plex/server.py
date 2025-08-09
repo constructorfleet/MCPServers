@@ -6,9 +6,9 @@ It includes functions to search for movies, retrieve movie details, manage playl
 and obtain recent movies and movie genres. Logging and asynchronous execution are used
 to handle non-blocking I/O and to provide informative error messages.
 """
+
 import argparse
 import asyncio
-from calendar import c
 from enum import StrEnum
 import logging
 
@@ -23,7 +23,6 @@ from mcp.types import ToolAnnotations
 from plex.knowledge import KnowledgeBase, PlexMediaPayload, PlexMediaQuery
 from plex.plex_api import PlexAPI, PlexTextSearch
 from plex.format import format_client, format_episode, format_movie, format_playlist, format_session
-from plex.types import MediaType, MovieSearchParams, ShowSearchParams
 from plexapi.base import PlexSession as PlexAPISession
 from plexapi.exceptions import NotFound
 from plexapi.client import PlexClient as PlexAPIClient
@@ -34,7 +33,7 @@ try:
     import http.client as http_client
 except ImportError:
     # Python 2
-    import httplib as http_client # type: ignore
+    import httplib as http_client  # type: ignore
 
 import tracemalloc
 
@@ -59,14 +58,21 @@ logger = logging.getLogger(__name__)
 def default_filter(client: PlexAPIClient) -> bool:
     return True
 
-def match_client_name(requested_client: str, candidates: list[PlexAPIClient], filter: Callable[[PlexAPIClient], bool] = default_filter) -> Optional[PlexAPIClient]:
+
+def match_client_name(
+    requested_client: str,
+    candidates: list[PlexAPIClient],
+    filter: Callable[[PlexAPIClient], bool] = default_filter,
+) -> Optional[PlexAPIClient]:
     """
     Try to match the requested client to a candidate
     """
     if not requested_client or not candidates or not filter:
         return None
     candidate_map = {c.title: c for c in candidates if filter(c)}
-    choice, score, _ = process.extractOne(requested_client, list(candidate_map.keys()), score_cutoff=60)
+    choice, score, _ = process.extractOne(
+        requested_client, list(candidate_map.keys()), score_cutoff=60
+    )
     return candidate_map.get(choice, None) if score >= 60 else None
 
 
@@ -74,12 +80,14 @@ def match_client_name(requested_client: str, candidates: list[PlexAPIClient], fi
 plex_api: PlexAPI | None = None
 plex_search: PlexTextSearch | None = None
 
+
 def get_plex_search() -> PlexTextSearch:
     if not plex_api:
         raise ValueError("PlexAPI is not initialized")
     if not plex_search:
         raise ValueError("PlexTextSearch is not initialized")
     return plex_search
+
 
 @mcp.custom_route("/health", ["GET"], "health", False)
 async def health(request: Request) -> Response:
@@ -90,7 +98,6 @@ async def health(request: Request) -> Response:
         return Response("OK", status_code=200, media_type="text/plain")
     except Exception:
         return Response("ERROR", status_code=500, media_type="text/plain")
-
 
 
 # @mcp.tool(
@@ -211,7 +218,8 @@ async def search_movies(
         Field(
             description="Actor name to filter by",
             default=None,
-            examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
+            examples=["Leonardo DiCaprio",
+                      "Arnold Schwarzenegger", "Harrison Ford"],
         ),
     ] = None,
     content_rating: Annotated[
@@ -243,8 +251,8 @@ async def search_movies(
         Field(
             description="Optionally limit the number of items returned.",
             default=None,
-            examples=[None,1, 5, 10],
-        )
+            examples=[None, 1, 5, 10],
+        ),
     ] = None,
 ) -> str:
     """
@@ -278,22 +286,23 @@ async def search_movies(
             else:
                 similar_movies: list[PlexMediaPayload] = await get_plex_search().find_media(
                     PlexMediaQuery(
-                        type='movie',
+                        type="movie",
                         title=similar_to,
                     ),
-                    limit=1
+                    limit=1,
                 )
-                similar_movie = similar_movies[0].model_dump() if similar_movies else None
+                similar_movie = similar_movies[0].model_dump(
+                ) if similar_movies else None
 
             if not similar_movie:
                 return f"ERROR: Movie with key/title {similar_to} not found."
             start_index = 1
             params = PlexMediaQuery(
-                type='movie',
+                type="movie",
                 title=title,
                 year=year,
-                genres=genre.split(",") if genre else similar_movie['genres'],
-                summary=similar_movie['summary'],
+                genres=genre.split(",") if genre else similar_movie["genres"],
+                summary=similar_movie["summary"],
                 directors=director.split(",") if director else None,
                 actors=actor.split(",") if actor else None,
                 content_rating=content_rating,
@@ -301,7 +310,7 @@ async def search_movies(
             )
         else:
             params = PlexMediaQuery(
-                type='movie',
+                type="movie",
                 title=title,
                 year=year,
                 directors=director.split(",") if director else None,
@@ -310,10 +319,7 @@ async def search_movies(
                 content_rating=content_rating,
                 watched=watched,
             )
-        movies = await get_plex_search().find_media(
-            params,
-            limit=limit + 1 if limit else None
-        )
+        movies = await get_plex_search().find_media(params, limit=limit + 1 if limit else None)
     except Exception as e:
         logger.exception("search_movies failed connecting to Plex")
         return f"ERROR: Could not search Plex. {e}"
@@ -323,10 +329,12 @@ async def search_movies(
 
     results: List[str] = []
     # Validate the limit parameter
-    limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
-    for i, m in enumerate(movies[start_index:limit + start_index], start=1):
+    # Default to 5 if limit is 0 or negative
+    limit = max(1, limit) if limit else 5
+    for i, m in enumerate(movies[start_index: limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        results.append(f"Result #{i}:\nKey: {m.key}\n{format_movie(m)}")  # type: ignore
+        # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.key}\n{format_movie(m)}")
 
     # if limit and len(movies) > limit:
     #     results.append(f"\n... and {len(movies)-limit} more results.")
@@ -375,13 +383,16 @@ async def get_movie_details(
             year=int(movie["year"]) if movie["year"] else 0,
             rating=float(movie["rating"]) * 10.0 if movie["rating"] else 0.0,
             watched=movie["isWatched"],
-            type='movie',
+            type="movie",
             genres=[g.tag for g in movie["Genre"]] if movie["Genre"] else [],
             actors=[a.tag for a in movie["Actor"]] if movie["Actor"] else [],
             studio=movie["studio"] or "",
-            directors=[d.tag for d in movie["Director"]] if movie["Director"] else [],
-            writers=[w.tag for w in movie["Writer"]] if movie["Writer"] else [],
-            duration_seconds=(movie["duration"] // 1000) if movie["duration"] else 0,
+            directors=[d.tag for d in movie["Director"]
+                       ] if movie["Director"] else [],
+            writers=[w.tag for w in movie["Writer"]
+                     ] if movie["Writer"] else [],
+            duration_seconds=(movie["duration"] //
+                              1000) if movie["duration"] else 0,
             content_rating=movie["contentRating"] if "contentRating" in movie else None,
             show_title=None,
             season=None,
@@ -392,7 +403,8 @@ async def get_movie_details(
     except NotFound:
         return f"ERROR: Movie with key {movie_key} not found."
     except Exception as e:
-        logger.exception("Failed to fetch movie details for key '%s'", movie_key)
+        logger.exception(
+            "Failed to fetch movie details for key '%s'", movie_key)
         return f"ERROR: Failed to fetch movie details. {str(e)}"
 
 
@@ -424,28 +436,31 @@ async def get_new_movies() -> str:
                 year=int(m["year"]) if m["year"] else 0,
                 rating=float(m["rating"]) * 10.0 if m["rating"] else 0.0,
                 watched=m["isWatched"],
-                type='movie',
+                type="movie",
                 genres=[g.tag for g in m["Genre"]] if m["Genre"] else [],
                 actors=[a.tag for a in m["Actor"]] if m["Actor"] else [],
                 studio=m["studio"] or "",
-                directors=[d.tag for d in m["Director"]] if m["Director"] else [],
+                directors=[d.tag for d in m["Director"]
+                           ] if m["Director"] else [],
                 writers=[w.tag for w in m["Writer"]] if m["Writer"] else [],
-                duration_seconds=(m["duration"] // 1000) if m["duration"] else 0,
+                duration_seconds=(
+                    m["duration"] // 1000) if m["duration"] else 0,
                 content_rating=m["contentRating"] if "contentRating" in m else None,
                 show_title=None,
                 season=None,
                 episode=None,
             )
-            for m
-            in movies
+            for m in movies
         ]
         results: List[str] = []
         for i, m in enumerate(movies[:10], start=1):
-            results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")  # type: ignore
+            # type: ignore
+            results.append(f"Result #{i}:\nKey: {m.key}\n{format_movie(m)}")
         logger.info(("Returning %s new movies.", "\n---\n".join(results)))
         return "\n---\n".join(results)
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
+
 
 @mcp.tool(
     name="search_shows",
@@ -484,7 +499,8 @@ async def search_shows(
         Field(
             description="Actor name to filter by",
             default=None,
-            examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
+            examples=["Leonardo DiCaprio",
+                      "Arnold Schwarzenegger", "Harrison Ford"],
         ),
     ] = None,
     content_rating: Annotated[
@@ -541,7 +557,7 @@ async def search_shows(
             description="Optionally limit the number of items returned.",
             default=None,
             examples=[None, 1, 5, 10],
-        )
+        ),
     ] = None,
 ) -> str:
     """
@@ -573,38 +589,38 @@ async def search_shows(
             if similar_to.isdigit():
                 similar_episodes = await get_plex_search().find_media(
                     PlexMediaQuery(
-                        type='episode',
+                        type="episode",
                         key=int(similar_to),
                     ),
-                    limit=1
+                    limit=1,
                 )
             else:
                 similar_episodes = await get_plex_search().find_media(
                     PlexMediaQuery(
-                        type='episode',
+                        type="episode",
                         title=similar_to,
                     ),
-                    limit=1
+                    limit=1,
                 )
             if not similar_episodes:
                 return f"ERROR: Episode with key/title {similar_to} not found."
             similar_episode = similar_episodes[0].model_dump()
 
             params = PlexMediaQuery(
-                type='episode',
-                show_title=show_title or similar_episode.get('show_title'),
+                type="episode",
+                show_title=show_title or similar_episode.get("show_title"),
                 directors=director.split(",") if director else None,
                 genres=genre.split(",") if genre else None,
                 actors=actor.split(",") if actor else None,
                 content_rating=content_rating,
                 watched=watched,
                 episode=episode,
-                season=f"Season {season}" if season else None,
+                season=season if season else None,
                 title=episode_title,
             )
         else:
             params = PlexMediaQuery(
-                type='episode',
+                type="episode",
                 show_title=show_title,
                 directors=director.split(",") if director else None,
                 genres=genre.split(",") if genre else None,
@@ -612,13 +628,10 @@ async def search_shows(
                 content_rating=content_rating,
                 watched=watched,
                 episode=episode,
-                season=f"Season {season}" if season else None,
+                season=season if season else None,
                 title=episode_title,
             )
-        episodes = await get_plex_search().find_media(
-            params,
-            limit=limit + 1 if limit else None
-        )
+        episodes = await get_plex_search().find_media(params, limit=limit + 1 if limit else None)
         if not episodes:
             logger.info("No shows found matching filters")
             return "No shows found matching filters."
@@ -627,10 +640,12 @@ async def search_shows(
         return f"ERROR: Could not search Plex. {e}"
 
     # Validate the limit parameter
-    limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
+    # Default to 5 if limit is 0 or negative
+    limit = max(1, limit) if limit else 5
     results: List[str] = []
     for i, m in enumerate(episodes[:limit], start=1):
-        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
+        # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.key}\n{format_episode(m)}")
 
     if len(episodes) > limit:
         results.append(f"\n... and {len(episodes)-limit} more results.")
@@ -675,19 +690,30 @@ async def get_episode_details(
             title=episode["title"],
             summary=episode["summary"],
             year=int(episode["year"]) if episode["year"] else 0,
-            rating=float(episode["rating"]) * 10.0 if episode["rating"] else 0.0,
+            rating=float(episode["rating"]) *
+            10.0 if episode["rating"] else 0.0,
             watched=episode["isWatched"],
-            type='episode',
-            genres=[g.tag for g in episode["Genre"]] if episode["Genre"] else [],
-            actors=[a.tag for a in episode["Actor"]] if episode["Actor"] else [],
+            type="episode",
+            genres=[g.tag for g in episode["Genre"]
+                    ] if episode["Genre"] else [],
+            actors=[a.tag for a in episode["Actor"]
+                    ] if episode["Actor"] else [],
             studio=episode["studio"] or "",
-            directors=[d.tag for d in episode["Director"]] if episode["Director"] else [],
-            writers=[w.tag for w in episode["Writer"]] if episode["Writer"] else [],
-            duration_seconds=(episode["duration"] // 1000) if episode["duration"] else 0,
+            directors=[d.tag for d in episode["Director"]
+                       ] if episode["Director"] else [],
+            writers=[w.tag for w in episode["Writer"]
+                     ] if episode["Writer"] else [],
+            duration_seconds=(episode["duration"] //
+                              1000) if episode["duration"] else 0,
             content_rating=episode["contentRating"] if "contentRating" in episode else None,
             show_title=episode["grandparentTitle"] if "grandparentTitle" in episode else None,
-            season=episode["parentTitle"] if "parentTitle" in episode and episode["parentTitle"] else None,
-            episode=int(episode["index"]) if "index" in episode and episode["index"] else None,
+            season=(
+                episode["parentTitle"]
+                if "parentTitle" in episode and episode["parentTitle"]
+                else None
+            ),
+            episode=int(
+                episode["index"]) if "index" in episode and episode["index"] else None,
         )
         return format_episode(payload)
     except Exception as e:
@@ -722,24 +748,27 @@ async def get_new_shows() -> str:
                 year=int(e["year"]) if e["year"] else 0,
                 rating=float(e["rating"]) * 10.0 if e["rating"] else 0.0,
                 watched=e["isWatched"],
-                type='episode',
+                type="episode",
                 genres=[g.tag for g in e["Genre"]] if e["Genre"] else [],
                 actors=[a.tag for a in e["Actor"]] if e["Actor"] else [],
                 studio=e["studio"] or "",
-                directors=[d.tag for d in e["Director"]] if e["Director"] else [],
+                directors=[d.tag for d in e["Director"]
+                           ] if e["Director"] else [],
                 writers=[w.tag for w in e["Writer"]] if e["Writer"] else [],
-                duration_seconds=(e["duration"] // 1000) if e["duration"] else 0,
+                duration_seconds=(
+                    e["duration"] // 1000) if e["duration"] else 0,
                 content_rating=e["contentRating"] if "contentRating" in e else None,
                 show_title=e["grandparentTitle"] if "grandparentTitle" in e else None,
                 season=e["parentTitle"] if "parentTitle" in e and e["parentTitle"] else None,
-                episode=int(e["index"]) if "index" in e and e["index"] else None,
+                episode=int(
+                    e["index"]) if "index" in e and e["index"] else None,
             )
-            for e
-            in episodes
+            for e in episodes
         ]
         results: List[str] = []
         for i, m in enumerate(episodes[:10], start=1):
-            results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_episode(m)}")  # type: ignore
+            # type: ignore
+            results.append(f"Result #{i}:\nKey: {m.key}\n{format_episode(m)}")
         logger.info("Returning %s new episodes.", "\n---\n".join(results))
         return "\n---\n".join(results)
     except Exception as e:
@@ -780,11 +809,12 @@ async def get_active_clients(
 
         if not clients and not sessions:
             return "No active clients connected to your Plex server."
-        logger.info("Found %d active clients and %d sessions.", len(clients), len(sessions))
+        logger.info("Found %d active clients and %d sessions.",
+                    len(clients), len(sessions))
         results: List[str] = []
         for i, m in enumerate(clients):
             logger.info(f"Client {m.title} {m.protocolCapabilities}")
-            if controllable and "playback" not in m.protocolCapabilities: # type: ignore
+            if controllable and "playback" not in m.protocolCapabilities:  # type: ignore
                 continue
             session = [s for _, s in enumerate(sessions)]
             results.append(
@@ -829,7 +859,7 @@ async def play_media_on_client(
         ),
     ] = None,
     media_type: Annotated[
-        Optional[Literal['movie'] | Literal['episode']],
+        Optional[Literal["movie"] | Literal["episode"]],
         Field(
             description="The type of media to play when searching by title. (movie or episode)",
             examples=["movie", "episode"],
@@ -855,34 +885,53 @@ async def play_media_on_client(
         if not clients:
             return "No active clients connected to your Plex server."
         logger.info("Found %d active clients.", len(clients))
-        if len([c for c in clients if c.machineIdentifier == machine_identifier_or_client_name or c.title == machine_identifier_or_client_name]) > 0:
-            client = [c for c in clients if c.machineIdentifier == machine_identifier_or_client_name or c.title == machine_identifier_or_client_name][0]
+        if (
+            len(
+                [
+                    c
+                    for c in clients
+                    if c.machineIdentifier == machine_identifier_or_client_name
+                    or c.title == machine_identifier_or_client_name
+                ]
+            )
+            > 0
+        ):
+            client = [
+                c
+                for c in clients
+                if c.machineIdentifier == machine_identifier_or_client_name
+                or c.title == machine_identifier_or_client_name
+            ][0]
         else:
-            client = match_client_name(machine_identifier_or_client_name, clients, filter=lambda c: "playback" in c.protocolCapabilities)
+            client = match_client_name(
+                machine_identifier_or_client_name,
+                clients,
+                filter=lambda c: "playback" in c.protocolCapabilities,
+            )
         if not client:
-            return f"No client found with machine identifier/name {machine_identifier_or_client_name}."
+            return (
+                f"No client found with machine identifier/name {machine_identifier_or_client_name}."
+            )
         if "playback" not in client.protocolCapabilities:
             return f"Client {client.title} does not support playback control."
         if not media_key and media_title:
             media = await get_plex_search().find_media(
-                PlexMediaQuery(
-                    type=media_type,
-                    title=media_title
-                ),
-                limit=1
+                PlexMediaQuery(type=media_type, title=media_title), limit=1
             )
             if not media:
                 return f"No media found with title {media_title}."
             media_key = media[0].key if media else None
         if not media_key:
             return f"No media found with title {media_title}."
-        logger.info("Found client: %s with media key: %s", client.title, media_key)
+        logger.info("Found client: %s with media key: %s",
+                    client.title, media_key)
         media = await plex_api.get_media(media_key)
         if not media:
             return f"No media found with key {media_key}."
-        logger.info("Playing media: %s on client: %s", media.title, client.title)
+        logger.info("Playing media: %s on client: %s",
+                    media.title, client.title)
         await asyncio.to_thread(client.playMedia, media)
-        return f"Playing {media.title} on {client.title}." # type: ignore
+        return f"Playing {media.title} on {client.title}."  # type: ignore
     except Exception as e:
         logger.exception("Failed to play media on client.")
         return f"ERROR: Failed to play media on client. {str(e)}"
@@ -903,11 +952,12 @@ class MediaCommand(StrEnum):
 
 
 @mcp.tool(
-        name="control_client_playback",
-        description="Control playback on a specified Plex client ('play', 'resume', 'pause', 'stop', 'fast forward', 'rewind', 'next', 'previous', 'seek', 'skip', 'start over).",
-        annotations=ToolAnnotations(
-            title="Control Client Playback",
-        ),)
+    name="control_client_playback",
+    description="Control playback on a specified Plex client ('play', 'resume', 'pause', 'stop', 'fast forward', 'rewind', 'next', 'previous', 'seek', 'skip', 'start over).",
+    annotations=ToolAnnotations(
+        title="Control Client Playback",
+    ),
+)
 async def control_client_playback(
     machine_identifier: Annotated[
         str,
@@ -920,7 +970,19 @@ async def control_client_playback(
         str,
         Field(
             description="The playback command to send (play, pause, stop).",
-            examples=["play", "resume", "pause", "stop", "fast forward", "rewind", "next", "previous", "seek", "skip", "start over"],
+            examples=[
+                "play",
+                "resume",
+                "pause",
+                "stop",
+                "fast forward",
+                "rewind",
+                "next",
+                "previous",
+                "seek",
+                "skip",
+                "start over",
+            ],
         ),
     ],
     seek_position: Annotated[
@@ -955,12 +1017,14 @@ async def control_client_playback(
         return f"ERROR: Could not retrieve client. {str(e)}"
 
     if "playback" not in client.protocolCapabilities:
-        logger.info("Client '%s' does not support playback control.", client.title)
+        logger.info(
+            "Client '%s' does not support playback control.", client.title)
         return f"ERROR: Client '{client.title}' does not support playback control."
 
     try:
         command_enum = MediaCommand(command)
-        logger.info("Sending command '%s' to client '%s'.", command_enum, client.title)
+        logger.info("Sending command '%s' to client '%s'.",
+                    command_enum, client.title)
         if command_enum == MediaCommand.SEEK and seek_position is not None:
             client.seekTo(seek_position * 1000)
         if command_enum == MediaCommand.START_OVER:
@@ -983,7 +1047,9 @@ async def control_client_playback(
             return f"ERROR: Invalid command '{command}'."
         return f"Command '{command}' executed on client '{client.title}'."
     except Exception as e:
-        logger.exception("Failed to execute command '%s' on client '%s'.", command, machine_identifier)
+        logger.exception(
+            "Failed to execute command '%s' on client '%s'.", command, machine_identifier
+        )
         return f"ERROR: Failed to execute command '{command}' on client '{client.title}'. {str(e)}"
 
 
@@ -1030,6 +1096,7 @@ async def turn_on_client_subtitles(
     """
     return await set_client_subtitles(machine_identifier, True)
 
+
 @mcp.tool(
     name="get_client_machine_identifier",
     description="Get the machine identifier of a Plex client.",
@@ -1062,9 +1129,12 @@ async def get_client_machine_identifier(
         if not clients:
             return "No active clients connected to your Plex server."
         logger.info("Searching for client with name '%s'.", client_name)
-        client = match_client_name(client_name, clients, filter=lambda c: "playback" in c.protocolCapabilities)
+        client = match_client_name(
+            client_name, clients, filter=lambda c: "playback" in c.protocolCapabilities
+        )
         if client:
-            return f"Machine Identifier for client '{client_name}': {client.machineIdentifier}" # type: ignore
+            # type: ignore
+            return f"Machine Identifier for client '{client_name}': {client.machineIdentifier}"
         return f"ERROR: No client found with name '{client_name}'."
     except Exception as e:
         logger.exception("Failed to fetch client list.")
@@ -1111,7 +1181,11 @@ async def set_client_subtitles(
     try:
         sessions = await plex_api.get_sessions()
         logger.info("Found %d active sessions on Plex server.", len(sessions))
-        session: PlexAPISession = next((s for s in sessions if s.player.machineIdentifier == machine_identifier), None) # type: ignore
+        session: PlexAPISession = next(
+            # type: ignore
+            (s for s in sessions if s.player.machineIdentifier == machine_identifier),
+            None,
+        )
         if not session:
             return f"ERROR: No active session found for client '{client.title}'."
         source = session.source()
@@ -1122,7 +1196,8 @@ async def set_client_subtitles(
             return f"Subtitles disabled on client '{client.title}'."
         if not isinstance(source, list):
             source = [source]
-        logger.info("Found %d media items in session on client '%s'.", len(source), client.title)
+        logger.info("Found %d media items in session on client '%s'.",
+                    len(source), client.title)
         if not source:
             return f"ERROR: No media items found for session on client '{client.title}'."
         for _, item in enumerate(source):
@@ -1132,7 +1207,9 @@ async def set_client_subtitles(
                 if not part.subtitleStreams():
                     continue
                 for _, subtitle in enumerate(part.subtitleStreams()):
-                    if subtitle.language.lower() == "english" and (not subtitle.forced and "force" not in subtitle.extendedDisplayTitle.lower()):
+                    if subtitle.language.lower() == "english" and (
+                        not subtitle.forced and "force" not in subtitle.extendedDisplayTitle.lower()
+                    ):
                         logger.info(
                             "Found English subtitle stream on client '%s' '%s'.",
                             client.title,
@@ -1143,10 +1220,12 @@ async def set_client_subtitles(
                         return f"Subtitles enabled on client '{client.title}'."
         return f"ERROR: No English subtitles found for current media on client '{client.title}'."
     except NotFound:
-        logger.info("Client with machine identifier '%s' not found.", machine_identifier)
+        logger.info("Client with machine identifier '%s' not found.",
+                    machine_identifier)
         return f"ERROR: Client with machine identifier '{machine_identifier}' not found."
     except Exception as e:
-        logger.exception("Failed to set subtitles on client '%s'.", machine_identifier)
+        logger.exception(
+            "Failed to set subtitles on client '%s'.", machine_identifier)
         return f"ERROR: Could not set subtitles on client. {str(e)}"
 
 
@@ -1174,7 +1253,8 @@ async def list_playlists() -> str:
         formatted_playlists = []
         for i, playlist in enumerate(playlists, 1):
             formatted_playlists.append(
-                f"Playlist #{i}:\nKey: {playlist.ratingKey}\n{format_playlist(playlist)}"  # type: ignore
+                # type: ignore
+                f"Playlist #{i}:\nKey: {playlist.ratingKey}\n{format_playlist(playlist)}"
             )
         return "\n---\n".join(formatted_playlists)
     except Exception as e:
@@ -1212,7 +1292,8 @@ async def get_playlist_items(
     try:
         key = int(playlist_key)
         all_playlists = await plex_api.get_playlists()
-        playlist = next((p for p in all_playlists if p.ratingKey == key), None)  # type: ignore
+        # type: ignore
+        playlist = next((p for p in all_playlists if p.ratingKey == key), None)
         if not playlist:
             return f"No playlist found with key {playlist_key}."
 
@@ -1230,7 +1311,8 @@ async def get_playlist_items(
     except NotFound:
         return f"ERROR: Playlist with key {playlist_key} not found."
     except Exception as e:
-        logger.exception("Failed to fetch items for playlist key '%s'", playlist_key)
+        logger.exception(
+            "Failed to fetch items for playlist key '%s'", playlist_key)
         return f"ERROR: Failed to fetch playlist items. {str(e)}"
 
 
@@ -1446,6 +1528,7 @@ async def get_playlist_items(
 #         logger.exception("Failed to add movie to playlist")
 #         return f"ERROR: Failed to add movie to playlist. {str(e)}"
 
+
 @mcp.tool(
     name="get_movie_recommendations",
     description="Get movie recommendations.",
@@ -1491,7 +1574,8 @@ async def get_movie_recommendations(
         Field(
             description="Actor name to filter by",
             default=None,
-            examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
+            examples=["Leonardo DiCaprio",
+                      "Arnold Schwarzenegger", "Harrison Ford"],
         ),
     ] = None,
     content_rating: Annotated[
@@ -1553,42 +1637,41 @@ async def get_movie_recommendations(
                 similar_movie = await plex_api.get_item(int(similar_to))
             else:
                 similar_movies = await get_plex_search().find_media(
-                    PlexMediaQuery(
-                        type='movie',
-                        title=similar_to
-                    )
+                    PlexMediaQuery(type="movie", title=similar_to)
                 )
-                similar_movie = similar_movies[0].model_dump() if similar_movies else None
+                similar_movie = similar_movies[0].model_dump(
+                ) if similar_movies else None
             if not similar_movie:
                 return f"ERROR: Movie with key/title {similar_to} not found."
         if similar_movie:
             params = PlexMediaQuery(
-                type='movie',
+                type="movie",
                 title=title,
                 year=year,
                 directors=director.split(",") if director else None,
-                genres=genre.split(",") if genre else similar_movie["genres"] if "genres" in similar_movie else None,
+                genres=(
+                    genre.split(",")
+                    if genre
+                    else similar_movie["genres"] if "genres" in similar_movie else None
+                ),
                 actors=actor.split(",") if actor else None,
                 content_rating=content_rating if content_rating else None,
-                watched=watched
+                watched=watched,
             )
             start_index = 1
         else:
             params = PlexMediaQuery(
-                type='movie',
+                type="movie",
                 title=title,
                 year=year,
                 directors=director.split(",") if director else None,
                 genres=genre.split(",") if genre else None,
                 actors=actor.split(",") if actor else None,
                 content_rating=content_rating if content_rating else None,
-                watched=watched
+                watched=watched,
             )
 
-        movies = await get_plex_search().find_media(
-            params,
-            limit=limit + 1 if limit else None
-        )
+        movies = await get_plex_search().find_media(params, limit=limit + 1 if limit else None)
         if not movies:
             return "No matching movies found."
     except Exception as e:
@@ -1597,13 +1680,16 @@ async def get_movie_recommendations(
 
     results: List[str] = []
     # Validate the limit parameter
-    limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
-    for i, m in enumerate(movies[start_index:limit + start_index], start=1):
+    # Default to 5 if limit is 0 or negative
+    limit = max(1, limit) if limit else 5
+    for i, m in enumerate(movies[start_index: limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
-        results.append(f"Result #{i}:\nKey: {m.key}\n{format_movie(m)}")  # type: ignore
+        # type: ignore
+        results.append(f"Result #{i}:\nKey: {m.key}\n{format_movie(m)}")
 
     logger.info("Returning %s.", "\n---\n".join(results))
     return "\n---\n".join(results) if results else "No matching movies found."
+
 
 @mcp.tool(
     name="get_show_recommendations",
@@ -1642,7 +1728,8 @@ async def get_show_recommendations(
         Field(
             description="Actor name to filter by",
             default=None,
-            examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
+            examples=["Leonardo DiCaprio",
+                      "Arnold Schwarzenegger", "Harrison Ford"],
         ),
     ] = None,
     content_rating: Annotated[
@@ -1742,17 +1829,18 @@ async def get_show_recommendations(
             else:
                 similar_episodes = await get_plex_search().find_media(
                     PlexMediaQuery(
-                        type='episode',
+                        type="episode",
                         title=similar_to,
                     ),
-                    limit=1
+                    limit=1,
                 )
-                similar_episode = similar_episodes[0].model_dump() if similar_episodes else None
+                similar_episode = similar_episodes[0].model_dump(
+                ) if similar_episodes else None
             if not similar_episode:
                 return f"ERROR: Episode with key/title {similar_to} not found."
         if similar_episode:
             params = PlexMediaQuery(
-                type='episode',
+                type="episode",
                 title=(
                     episode_title
                     if episode_title
@@ -1770,18 +1858,20 @@ async def get_show_recommendations(
                 ),
                 directors=director.split(",") if director else None,
                 genres=(
-                    genre.split(",") if genre else similar_episode["genres"] if "genres" in similar_episode else None
+                    genre.split(",")
+                    if genre
+                    else similar_episode["genres"] if "genres" in similar_episode else None
                 ),
                 actors=actor.split(",") if actor else None,
                 content_rating=content_rating if content_rating else None,
                 watched=watched,
-                season=f"Season {season}" if season else None,
+                season=season if season else None,
                 episode=episode,
             )
             start_index = 1
         else:
             params = PlexMediaQuery(
-                type='episode',
+                type="episode",
                 title=episode_title,
                 year=episode_year,
                 show_title=show_title,
@@ -1790,51 +1880,55 @@ async def get_show_recommendations(
                 actors=actor.split(",") if actor else None,
                 content_rating=content_rating if content_rating else None,
                 watched=watched,
-                season=f"Season {season}" if season else None,
+                season=season if season else None,
                 episode=episode,
             )
 
-        episodes = await get_plex_search().find_media(
-            params,
-            limit=limit + 1 if limit else 5
-        )
+        episodes = await get_plex_search().find_media(params, limit=limit + 1 if limit else 5)
     except Exception as e:
         logger.exception("get_show_recommendations failed connecting to Plex")
         return f"ERROR: Could not search Plex. {e}"
 
     results: List[str] = []
     # Validate the limit parameter
-    limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
-    for i, e in enumerate(episodes[start_index:limit + start_index], start=1):
-        results.append(f"Result #{i}:\nKey: {e.key}\n{format_episode(e)}")  # type: ignore
+    # Default to 5 if limit is 0 or negative
+    limit = max(1, limit) if limit else 5
+    for i, e in enumerate(episodes[start_index: limit + start_index], start=1):
+        # type: ignore
+        results.append(f"Result #{i}:\nKey: {e.key}\n{format_episode(e)}")
     return "\n".join(results)
 
 
 def add_plex_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
-        "-u", "--plex-url",
+        "-u",
+        "--plex-url",
         type=str,
         help="Base URL for the Plex server (e.g., http://localhost:32400)",
     )
     parser.add_argument(
-        "-k", "--plex-token",
+        "-k",
+        "--plex-token",
         type=str,
         help="Authentication token for accessing the Plex server",
     )
     parser.add_argument(
-        "-qh", "--qdrant-host",
+        "-qh",
+        "--qdrant-host",
         type=str,
         default="localhost",
         help="Host for the Qdrant vector database (default: localhost)",
     )
     parser.add_argument(
-        "-qp", "--qdrant-port",
+        "-qp",
+        "--qdrant-port",
         type=int,
         default=6333,
         help="Port for the Qdrant vector database (default: 6333)",
     )
     parser.add_argument(
-        "-mn", "--model-name",
+        "-mn",
+        "--model-name",
         type=str,
         default="sentence-transformers/all-MiniLM-L6-v2",
         help="Model name for the Qdrant vector database (default: sentence-transformers/all-MiniLM-L6-v2)",
@@ -1842,41 +1936,60 @@ def add_plex_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
     return parser
 
+
 async def on_run_server(args):
     if not os.environ.get("PLEX_SERVER_URL"):
         if not args.plex_url:
-            raise ValueError("Plex server URL must be provided via --plex-url or PLEX_SERVER_URL environment variable.")
+            raise ValueError(
+                "Plex server URL must be provided via --plex-url or PLEX_SERVER_URL environment variable."
+            )
         os.environ["PLEX_SERVER_URL"] = args.plex_url
     if not os.environ.get("PLEX_TOKEN"):
         if not args.plex_token:
-            raise ValueError("Plex token must be provided via --plex-token or PLEX_TOKEN environment variable.")
+            raise ValueError(
+                "Plex token must be provided via --plex-token or PLEX_TOKEN environment variable."
+            )
         os.environ["PLEX_TOKEN"] = args.plex_token
     if not os.environ.get("QDRANT_HOST"):
         if not args.qdrant_host:
-            raise ValueError("Qdrant host must be provided via --qdrant-host or QDRANT_HOST environment variable.")
+            raise ValueError(
+                "Qdrant host must be provided via --qdrant-host or QDRANT_HOST environment variable."
+            )
         os.environ["QDRANT_HOST"] = args.qdrant_host
     if not os.environ.get("QDRANT_PORT"):
         if not args.qdrant_port:
-            raise ValueError("Qdrant port must be provided via --qdrant-port or QDRANT_PORT environment variable.")
+            raise ValueError(
+                "Qdrant port must be provided via --qdrant-port or QDRANT_PORT environment variable."
+            )
         os.environ["QDRANT_PORT"] = str(args.qdrant_port)
     if not os.environ.get("MODEL_NAME"):
         if not args.model_name:
-            raise ValueError("Model name must be provided via --model-name or MODEL_NAME environment variable.")
+            raise ValueError(
+                "Model name must be provided via --model-name or MODEL_NAME environment variable."
+            )
         os.environ["MODEL_NAME"] = args.model_name
-        
 
     global plex_api, plex_search
     plex_api = PlexAPI(os.environ["PLEX_SERVER_URL"], os.environ["PLEX_TOKEN"])
-    plex_search = PlexTextSearch(plex_api, KnowledgeBase(os.environ["MODEL_NAME"], os.environ["QDRANT_HOST"], int(os.environ["QDRANT_PORT"])))
+    plex_search = PlexTextSearch(
+        plex_api,
+        KnowledgeBase(
+            os.environ["MODEL_NAME"], os.environ["QDRANT_HOST"], int(
+                os.environ["QDRANT_PORT"])
+        ),
+    )
     await plex_search._schedule_load_items()
-    logger.info("Connected to Plex server at %s", os.environ["PLEX_SERVER_URL"])
+    logger.info("Connected to Plex server at %s",
+                os.environ["PLEX_SERVER_URL"])
     # movies = await get_plex_search().find_media(type="movie", title="Terminator Dark Fate")
     # client = await plex_api.get_client("dbb438549d0cc1c9-com-plexapp-android")
     # if client is not None:
     #     client.playMedia(await plex_api.get_media(movies[0]["key"])) if movies else logger.info("No movies found")
 
+
 def main():
     run_server("plex", add_args_fn=add_plex_args, run_callback=on_run_server)
+
 
 # --- Main Execution ---
 if __name__ == "__main__":
