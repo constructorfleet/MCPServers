@@ -95,8 +95,7 @@ def _sparse_from_text(text: str) -> SparseVector:
     index_to_val: dict[int, float] = {}
     for tok, tf in counts.items():
         h = (
-            int.from_bytes(hashlib.blake2b(tok.encode("utf-8"),
-                           digest_size=8).digest(), "little")
+            int.from_bytes(hashlib.blake2b(tok.encode("utf-8"), digest_size=8).digest(), "little")
             % 2147483647
         )
         val = 1.0 + math.log(tf)
@@ -127,8 +126,7 @@ async def ensure_collection(
     dim: int,
 ) -> None:
     """Create the collection if it doesn't exist, with dense + sparse vectors."""
-    _LOGGER.warning(
-        f"Ensuring collection '{name}' exists with {dim} dimensions.")
+    _LOGGER.warning(f"Ensuring collection '{name}' exists with {dim} dimensions.")
     collections = await client.get_collections()
     if any(c.name == name for c in collections.collections):
         recreate = False
@@ -154,8 +152,7 @@ async def ensure_collection(
     _LOGGER.warning(f"Creating collection '{name}'")
     await client.create_collection(
         collection_name=name,
-        vectors_config={"dense": VectorParams(
-            size=dim, distance=Distance.COSINE)},
+        vectors_config={"dense": VectorParams(size=dim, distance=Distance.COSINE)},
         sparse_vectors_config={"sparse": SparseVectorParams()},
         on_disk_payload=True,
     )
@@ -492,7 +489,7 @@ class Collection(CollectionInfo, Generic[TModel]):
         # 3-gram shingles over tokens
         if len(tokens) < 3:
             return set(tokens)
-        return {" ".join(tokens[i: i + 3]) for i in range(len(tokens) - 2)}
+        return {" ".join(tokens[i : i + 3]) for i in range(len(tokens) - 2)}
 
     def _sim_items(self, a: DataPoint[TModel], b: DataPoint[TModel]) -> float:
         """Calculate similarity between two media items for diversity filtering.
@@ -586,8 +583,7 @@ class Collection(CollectionInfo, Generic[TModel]):
         else:
             rtype = "movie"
         # IDs
-        movie_id = str(getattr(item, "key", None)
-                       ) if rtype == "movie" else None
+        movie_id = str(getattr(item, "key", None)) if rtype == "movie" else None
         series_id = None
         # Prefer a stable collection/series/franchise key if present; fallback to show_title for episodes
         if payload.get("collection"):
@@ -611,8 +607,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             result_type=rtype,
             title=getattr(item, "title", None),
             year=getattr(item, "year", None),
-            status=(payload.get("show_status") if rtype ==
-                    "episode" else payload.get("status")),
+            status=(payload.get("show_status") if rtype == "episode" else payload.get("status")),
             series_id=series_id,
             movie_id=movie_id,
             genres=getattr(item, "genres", None),
@@ -652,8 +647,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             if common:
                 reasons.append(f"cast overlap: {', '.join(common)}")
         if q.directors:
-            common = sorted(set(q.directors).intersection(
-                set(item.directors or [])))
+            common = sorted(set(q.directors).intersection(set(item.directors or [])))
             if common:
                 reasons.append(f"director overlap: {', '.join(common)}")
         return ", ".join(reasons) or None
@@ -686,12 +680,9 @@ class Collection(CollectionInfo, Generic[TModel]):
         for dp in points:
             item = dp.payload_data()
             base = float(getattr(dp, "score", 0.0) or 0.0)
-            g = jaccard(getattr(q, "genres", None),
-                        getattr(item, "genres", None))
-            c = jaccard(getattr(q, "actors", None),
-                        getattr(item, "actors", None))
-            d = jaccard(getattr(q, "directors", None),
-                        getattr(item, "directors", None))
+            g = jaccard(getattr(q, "genres", None), getattr(item, "genres", None))
+            c = jaccard(getattr(q, "actors", None), getattr(item, "actors", None))
+            d = jaccard(getattr(q, "directors", None), getattr(item, "directors", None))
             blend = 0.75 * base + 0.15 * g + 0.06 * c + 0.04 * d
             rescored.append((blend, dp))
         rescored.sort(key=lambda t: t[0], reverse=True)
@@ -709,8 +700,7 @@ class Collection(CollectionInfo, Generic[TModel]):
     async def upsert_data(
         self,
         data: list[TModel],
-        id_getter: Callable[[TModel], Optional[int | str]
-                            ] = lambda x: getattr(x, "id", None),
+        id_getter: Callable[[TModel], Optional[int | str]] = lambda x: getattr(x, "id", None),
         wait: bool = True,
     ):
         """Insert or update typed data objects in the collection.
@@ -762,28 +752,22 @@ class Collection(CollectionInfo, Generic[TModel]):
         shoulds: list = []
         musts: list = []
         if data.title:
-            shoulds.append(FieldCondition(
-                key="title", match=MatchPhrase(phrase=data.title)))
+            shoulds.append(FieldCondition(key="title", match=MatchPhrase(phrase=data.title)))
         if data.show_title:
             shoulds.append(
-                FieldCondition(key="show_title", match=MatchPhrase(
-                    phrase=data.show_title))
+                FieldCondition(key="show_title", match=MatchPhrase(phrase=data.show_title))
             )
         if data.genres:
             for genre in data.genres:
-                shoulds.append(FieldCondition(
-                    key="genres", match=MatchPhrase(phrase=genre)))
+                shoulds.append(FieldCondition(key="genres", match=MatchPhrase(phrase=genre)))
         if data.watched is not None:
-            musts.append(FieldCondition(
-                key="watched", match=MatchValue(value=data.watched)))
+            musts.append(FieldCondition(key="watched", match=MatchValue(value=data.watched)))
         if data.actors:
             for actor in data.actors:
-                musts.append(FieldCondition(
-                    key="actors", match=MatchPhrase(phrase=actor)))
+                musts.append(FieldCondition(key="actors", match=MatchPhrase(phrase=actor)))
         if data.directors:
             for director in data.directors:
-                musts.append(FieldCondition(key="directors",
-                             match=MatchPhrase(phrase=director)))
+                musts.append(FieldCondition(key="directors", match=MatchPhrase(phrase=director)))
         query_filter = Filter(
             must=musts if len(musts) > 0 else None,
             min_should=(
@@ -825,8 +809,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                 limit=limit or 10000,
             )
             points = [
-                DataPoint.model_validate(
-                    {"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
                 for p in result.points
             ]
             if self.enable_rerank:
@@ -865,8 +848,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             )
             # Truncate to requested limit and adapt to DataPoint
             points = [
-                DataPoint.model_validate(
-                    {"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
                 for p in fused_points[: (limit or 10000)]
             ]
             if self.enable_rerank:
@@ -877,8 +859,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             return points
         # else fallback to built-in hybrid heuristics
         # Heuristic: short or fielded queries benefit more from sparse; long summaries lean dense
-        query_hint = " ".join(
-            [data.title or "", data.summary or "", data.show_title or ""]).strip()
+        query_hint = " ".join([data.title or "", data.summary or "", data.show_title or ""]).strip()
         wc = _word_count(query_hint)
         use_sparse = (
             True
@@ -886,8 +867,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             else True
         )
         doc_text = self.make_document(data)
-        query = Document(text=doc_text, model=self.model,
-                         options={"cuda": True})  # type: ignore
+        query = Document(text=doc_text, model=self.model, options={"cuda": True})  # type: ignore
         sparse = _sparse_from_text(doc_text) if use_sparse else None
         _LOGGER.warn(
             f"Searching collection {self.name} with filter: {json.dumps(query_filter.model_dump(exclude_none=True), indent=2)} and query: {json.dumps(query.model_dump(exclude_none=True), indent=2)}"
@@ -901,8 +881,7 @@ class Collection(CollectionInfo, Generic[TModel]):
         )
         points = sorted(
             [
-                DataPoint.model_validate(
-                    {"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
                 for p in result.points
             ],
             key=lambda x: x.score,
@@ -939,8 +918,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             limit=limit or 10,
         )
         points = [
-            DataPoint.model_validate(
-                {"payload_class": self.payload_class, **p.model_dump()})
+            DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
             for p in result.points
         ]
         results = [self._point_to_tool_result(dp, why=None) for dp in points]
@@ -988,8 +966,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             limit=limit or 10,
         )
         points = [
-            DataPoint.model_validate(
-                {"payload_class": self.payload_class, **p.model_dump()})
+            DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
             for p in result.points
         ]
         results = [self._point_to_tool_result(dp, why=None) for dp in points]
@@ -1047,8 +1024,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                 values = [values]
             sum_terms.sum.append(
                 MultExpression(
-                    mult=[float(w), FieldCondition(
-                        key=key, match=MatchAny(any=list(values)))]
+                    mult=[float(w), FieldCondition(key=key, match=MatchAny(any=list(values)))]
                 )
             )
         result = await self.qdrant_client.query_points(
@@ -1061,8 +1037,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             limit=limit or 10,
         )
         points = [
-            DataPoint.model_validate(
-                {"payload_class": self.payload_class, **p.model_dump()})
+            DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
             for p in result.points
         ]
         # Optional rerank on top
@@ -1108,8 +1083,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             item = dp.payload_data()
             why = self._explain_match(data, item)
             results.append(self._point_to_tool_result(dp, why=why))
-        hint = " ".join([data.title or "", data.summary or "",
-                        data.show_title or ""]).strip()
+        hint = " ".join([data.title or "", data.summary or "", data.show_title or ""]).strip()
         wc = _word_count(hint)
         if self.enable_two_pass_fusion:
             dense_w = self.fusion_dense_weight
@@ -1162,8 +1136,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                 self.fusion_sparse_weight,
             )
             points = [
-                DataPoint.model_validate(
-                    {"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
                 for p in fused_points[: (limit or 10000)]
             ]
             if self.enable_rerank:
@@ -1201,8 +1174,7 @@ class Collection(CollectionInfo, Generic[TModel]):
         )
         points = sorted(
             [
-                DataPoint.model_validate(
-                    {"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
                 for p in result.points
             ],
             key=lambda x: x.score,
@@ -1293,7 +1265,8 @@ class KnowledgeBase:
         """
         self.model = model or "text-embedding-ada-002"
         self.qdrant_client = AsyncQdrantClient(
-            host=qdrant_host, port=qdrant_port)
+            host=qdrant_host, port=qdrant_port, grpc_port=6334, prefer_grpc=True
+        )
         self.model = model
         self._collection_cache: dict[str, Collection] = {}
 
@@ -1304,8 +1277,7 @@ class KnowledgeBase:
             dim: Dimension of the dense vector embeddings
         """
         await ensure_collection(
-            self.qdrant_client, "movies", dim or self.qdrant_client.get_embedding_size(
-                self.model)
+            self.qdrant_client, "movies", dim or self.qdrant_client.get_embedding_size(self.model)
         )
         await ensure_payload_indexes(self.qdrant_client, "movies", is_episode=False)
         collection = await self._fetch_collection(
@@ -1322,8 +1294,7 @@ class KnowledgeBase:
             dim: Dimension of the dense vector embeddings
         """
         await ensure_collection(
-            self.qdrant_client, "episodes", dim or self.qdrant_client.get_embedding_size(
-                self.model)
+            self.qdrant_client, "episodes", dim or self.qdrant_client.get_embedding_size(self.model)
         )
         await ensure_payload_indexes(self.qdrant_client, "episodes", is_episode=True)
         collection = await self._fetch_collection(
@@ -1340,8 +1311,7 @@ class KnowledgeBase:
             dim: Dimension of the dense vector embeddings
         """
         await ensure_collection(
-            self.qdrant_client, "media", dim or self.qdrant_client.get_embedding_size(
-                self.model)
+            self.qdrant_client, "media", dim or self.qdrant_client.get_embedding_size(self.model)
         )
         await ensure_payload_indexes(self.qdrant_client, "media", is_episode=False)
         collection = await self._fetch_collection(
