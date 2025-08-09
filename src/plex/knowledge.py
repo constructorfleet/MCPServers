@@ -834,6 +834,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                         using="dense",
                         query_filter=query_filter,
                         limit=prelimit,
+                        with_payload=True,
                     ),
                     self.qdrant_client.query_points(
                         collection_name=self.name,
@@ -841,6 +842,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                         using="sparse",
                         query_filter=query_filter,
                         limit=prelimit,
+                        with_payload=True,
                     ),
                 ]
             )
@@ -880,9 +882,10 @@ class Collection(CollectionInfo, Generic[TModel]):
             collection_name=self.name,
             query=sparse if use_sparse else query,
             using="dense",
-            prefetch=Prefetch(query=sparse) if sparse is not None else None,
+            prefetch=Prefetch(query=sparse, using="sparse") if sparse is not None else None,
             query_filter=query_filter,
             limit=limit or 10000,
+            with_payload=True,
         )
         points = sorted(
             [
@@ -969,6 +972,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             collection_name=self.name,
             query=q,  # type: ignore[arg-type]
             limit=limit or 10,
+            with_payload=True,
         )
         points = [
             DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
@@ -1035,11 +1039,11 @@ class Collection(CollectionInfo, Generic[TModel]):
         result = await self.qdrant_client.query_points(
             collection_name=self.name,
             prefetch=Prefetch(
-                query=dense_doc,
-                limit=max(self.fusion_prelimit, (limit or 50) * 3),
+                query=dense_doc, limit=max(self.fusion_prelimit, (limit or 50) * 3), using="dense"
             ),
             query=FormulaQuery(formula=sum_terms),
             limit=limit or 10,
+            with_payload=True,
         )
         points = [
             DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
@@ -1124,15 +1128,23 @@ class Collection(CollectionInfo, Generic[TModel]):
         if self.enable_two_pass_fusion:
             sparse = _sparse_from_text(query)
             prelimit = max(self.fusion_prelimit, (limit or 50) * 3)
-            d_res = await self.qdrant_client.query_points(
-                collection_name=self.name,
-                query=doc,
-                limit=prelimit,
-            )
-            s_res = await self.qdrant_client.query_points(
-                collection_name=self.name,
-                sparse_vector=sparse,
-                limit=prelimit,
+            d_res, s_res = await asyncio.gather(
+                *[
+                    self.qdrant_client.query_points(
+                        collection_name=self.name,
+                        query=doc,
+                        limit=prelimit,
+                        using="dense",
+                        with_payload=True,
+                    ),
+                    self.qdrant_client.query_points(
+                        collection_name=self.name,
+                        sparse_vector=sparse,
+                        limit=prelimit,
+                        using="sparse",
+                        with_payload=True,
+                    ),
+                ]
             )
             fused_points = self._fuse_two_pass(
                 list(d_res.points),
@@ -1174,8 +1186,10 @@ class Collection(CollectionInfo, Generic[TModel]):
         result = await self.qdrant_client.query_points(
             collection_name=self.name,
             query=doc,
-            sparse_vector=sparse,
+            using="dense",
+            prefetch=Prefetch(query=sparse, using="sparse"),
             limit=limit or 10000,
+            with_payload=True,
         )
         points = sorted(
             [
