@@ -19,7 +19,9 @@ from typing import (
 )
 
 from plex.knowledge import Collection, KnowledgeBase, PlexMediaQuery, PlexMediaPayload
+
 _LOGGER = logging.getLogger(__name__)
+
 
 class Command:
 
@@ -55,7 +57,7 @@ class Command:
             return await http_client(controller_path, self.path, params=kwargs)
 
         return call
-    
+
     def __call__(self, *args: Any, **kwds: Any) -> Any:
         raise RuntimeError("Commands must be called via a Controller instance.")
 
@@ -76,7 +78,7 @@ class Controller(metaclass=ControllerMeta):
         for name, cmd in self._commands.items():  # type: ignore
             bound = cmd.bind(self._controller_path, self.send_request)  # type: ignore
             setattr(self, name, bound)
-    
+
     def __getattr__(self, name: str):
         cmd = self._commands.get(name)
         if cmd:
@@ -86,18 +88,26 @@ class Controller(metaclass=ControllerMeta):
 
 class Playback(Controller, path="playback"):
 
-    def __init__(
-        self, send_request: Callable[[str, str, str], Any]
-    ) -> None:
+    def __init__(self, send_request: Callable[[str, str, str], Any]) -> None:
         super().__init__(send_request)
-        self.play = Command(path="play", schema={"id": str}).bind(self._controller_path, self.send_request)
+        self.play = Command(path="play", schema={"id": str}).bind(
+            self._controller_path, self.send_request
+        )
         self.pause = Command(path="pause").bind(self._controller_path, self.send_request)
         self.stop = Command(path="stop").bind(self._controller_path, self.send_request)
-        self.seek_to = Command(path="seekTo", schema={"position": int}).bind(self._controller_path, self.send_request)
+        self.seek_to = Command(path="seekTo", schema={"position": int}).bind(
+            self._controller_path, self.send_request
+        )
         self.skip_next = Command(path="skipNext").bind(self._controller_path, self.send_request)
-        self.skip_previous = Command(path="skipPrevious").bind(self._controller_path, self.send_request)
-        self.fast_forward = Command(path="stepForward", schema={"step": int}).bind(self._controller_path, self.send_request)
-        self.rewind = Command(path="stepBack", schema={"step": int}).bind(self._controller_path, self.send_request)
+        self.skip_previous = Command(path="skipPrevious").bind(
+            self._controller_path, self.send_request
+        )
+        self.fast_forward = Command(path="stepForward", schema={"step": int}).bind(
+            self._controller_path, self.send_request
+        )
+        self.rewind = Command(path="stepBack", schema={"step": int}).bind(
+            self._controller_path, self.send_request
+        )
         self.play_media = Command(
             path="playMedia",
             schema={
@@ -112,8 +122,12 @@ class Playback(Controller, path="playback"):
                 "containerKey": Type[str],
             },
         ).bind(self._controller_path, self.send_request)
-        self.set_subtitle_stream = Command(path="setStreams", schema={"subtitleStreamID": int}).bind(self._controller_path, self.send_request)
-        self.set_audio_stream = Command(path="setStreams", schema={"audioStreamID": int}).bind(self._controller_path, self.send_request)
+        self.set_subtitle_stream = Command(
+            path="setStreams", schema={"subtitleStreamID": int}
+        ).bind(self._controller_path, self.send_request)
+        self.set_audio_stream = Command(path="setStreams", schema={"audioStreamID": int}).bind(
+            self._controller_path, self.send_request
+        )
 
 
 class Navigation(Controller, path="navigation"):
@@ -126,15 +140,21 @@ class Navigation(Controller, path="navigation"):
         self.select = Command(path="select").bind(self._controller_path, self.send_request)
         self.back = Command(path="back").bind(self._controller_path, self.send_request)
         self.home = Command(path="home").bind(self._controller_path, self.send_request)
-        self.context_menu = Command(path="contextMenu").bind(self._controller_path, self.send_request)
+        self.context_menu = Command(path="contextMenu").bind(
+            self._controller_path, self.send_request
+        )
         self.show_osd = Command(path="showOSD").bind(self._controller_path, self.send_request)
         self.hide_osd = Command(path="hideOSD").bind(self._controller_path, self.send_request)
         self.toggle_osd = Command(path="toggleOSD").bind(self._controller_path, self.send_request)
         self.page_up = Command(path="pageUp").bind(self._controller_path, self.send_request)
         self.page_down = Command(path="pageDown").bind(self._controller_path, self.send_request)
         self.next_letter = Command(path="nextLetter").bind(self._controller_path, self.send_request)
-        self.previous_letter = Command(path="previousLetter").bind(self._controller_path, self.send_request)
-        self.toggle_fullscreen = Command(path="toggleFullscreen").bind(self._controller_path, self.send_request)
+        self.previous_letter = Command(path="previousLetter").bind(
+            self._controller_path, self.send_request
+        )
+        self.toggle_fullscreen = Command(path="toggleFullscreen").bind(
+            self._controller_path, self.send_request
+        )
 
 
 DEFAULT_QUERY_PARAMETERS: Mapping[str, httpx._types.PrimitiveData] = {
@@ -219,30 +239,52 @@ class PlexAPI:
     async def get_library_sections(self) -> list:
         """Get a list of library sections."""
         data = await self._make_request("GET", "/library/sections")
-        return cast(list, data.get("MediaContainer", {}).get("Directory", [])) if data.get("MediaContainer", {}).get("Directory") else []
+        return (
+            cast(list, data.get("MediaContainer", {}).get("Directory", []))
+            if data.get("MediaContainer", {}).get("Directory")
+            else []
+        )
 
     async def get_library_section(self, section_id: int) -> dict:
         """Get details about a specific library section."""
         data = await self._make_request("GET", f"/library/sections/{section_id}")
-        return data.get("MediaContainer", {}).get("Metadata", [])[0] if data.get("MediaContainer", {}).get("Metadata") else {}
+        return (
+            data.get("MediaContainer", {}).get("Metadata", [])[0]
+            if data.get("MediaContainer", {}).get("Metadata")
+            else {}
+        )
 
     async def get_library_section_contents(self, section_id: int) -> list:
         """Get contents of a specific library section."""
-        all_data = await asyncio.gather(*[
-            self._make_request("GET", f"/library/sections/{section_id}/search", params={"type": libtype})
-            for libtype
-            in [1, 4]
-        ])
-        return list(itertools.chain.from_iterable([
-            data.get("MediaContainer", {}).get("Metadata", []) if data.get("MediaContainer", {}).get("Metadata") else []
-            for data
-            in all_data
-        ]))
+        all_data = await asyncio.gather(
+            *[
+                self._make_request(
+                    "GET", f"/library/sections/{section_id}/search", params={"type": libtype}
+                )
+                for libtype in [1, 4]
+            ]
+        )
+        return list(
+            itertools.chain.from_iterable(
+                [
+                    (
+                        data.get("MediaContainer", {}).get("Metadata", [])
+                        if data.get("MediaContainer", {}).get("Metadata")
+                        else []
+                    )
+                    for data in all_data
+                ]
+            )
+        )
 
     async def get_item(self, rating_key: int) -> dict:
         """Get details about a specific item by its rating key."""
         data = await self._make_request("GET", f"/library/metadata/{rating_key}")
-        return data.get("MediaContainer", {}).get("Metadata", [{}])[0] if data.get("MediaContainer", {}).get("Metadata") else {}
+        return (
+            data.get("MediaContainer", {}).get("Metadata", [{}])[0]
+            if data.get("MediaContainer", {}).get("Metadata")
+            else {}
+        )
 
     async def _get_all_items(
         self,
@@ -255,7 +297,11 @@ class PlexAPI:
             k: str(v) for k, v in kwargs.items() if v is not None
         }
         data = await self._make_request("GET", url, params=params)
-        return data.get("MediaContainer", {}).get("Metadata", []) if data.get("MediaContainer", {}).get("Metadata") else []
+        return (
+            data.get("MediaContainer", {}).get("Metadata", [])
+            if data.get("MediaContainer", {}).get("Metadata")
+            else []
+        )
 
     async def get_all_movies(
         self, section_id: int | None = None, **kwargs: Unpack[SearchParameters]
@@ -265,20 +311,28 @@ class PlexAPI:
             kwargs = SearchParameters()
         kwargs["type"] = "movie"
         return await self._get_all_items(section_id, **kwargs)
-    
+
     async def get_new_movies(
         self,
     ) -> list:
         """Get recently added movies."""
         data = await self._make_request("GET", "/library/sections/1/recentlyAdded")
-        return data.get("MediaContainer", {}).get("Metadata", []) if data.get("MediaContainer", {}).get("Metadata") else []
-    
+        return (
+            data.get("MediaContainer", {}).get("Metadata", [])
+            if data.get("MediaContainer", {}).get("Metadata")
+            else []
+        )
+
     async def get_new_episodes(
         self,
     ) -> list:
         """Get recently added episodes."""
         data = await self._make_request("GET", "/library/sections/2/recentlyAdded")
-        return data.get("MediaContainer", {}).get("Metadata", []) if data.get("MediaContainer", {}).get("Metadata") else []
+        return (
+            data.get("MediaContainer", {}).get("Metadata", [])
+            if data.get("MediaContainer", {}).get("Metadata")
+            else []
+        )
 
     async def get_all_shows(
         self, section_id: int | None = None, **kwargs: Unpack[SearchParameters]
@@ -326,7 +380,9 @@ class PlexAPI:
 
     async def get_client(self, machine_identifier: str) -> PlexClient | None:
         """Get a client by ID."""
-        return next((c for c in await self.get_clients() if c.machineIdentifier == machine_identifier), None)
+        return next(
+            (c for c in await self.get_clients() if c.machineIdentifier == machine_identifier), None
+        )
 
     async def get_media(self, key: int | str) -> Media | None:
         """Get media item by key."""
@@ -337,7 +393,7 @@ class PlexTextSearch:
     def __init__(self, plex: PlexAPI, knowledge_base: KnowledgeBase):
         """
         Initialize the text search with specified fields and weights.
-        
+
         :param fields_with_weights: dict of {field_name: weight}
         :param mode: 'tfidf' or 'embedding'
         :param model_name: model for embedding mode
@@ -357,15 +413,15 @@ class PlexTextSearch:
     async def _load_items(self) -> None:
         """
         Load items from Plex server for the specified section.
-        
+
         :return: list of media items
         """
-        if media := await self.knowledge_base.media():
+        if media := await self.knowledge_base.ensure_media():
             self._media = media
         else:
             return None
-        movie_collection = await self.knowledge_base.movies()
-        episode_collection = await self.knowledge_base.episodes()
+        movie_collection = await self.knowledge_base.ensure_movies()
+        episode_collection = await self.knowledge_base.ensure_episodes()
         sections = await self.plex.get_library_sections()
         items: list[dict] = []
         movies: list[dict] = []
@@ -373,29 +429,41 @@ class PlexTextSearch:
         for section in sections:
             sec_id = int(section["key"])
             all_items_data = await self.plex.get_library_section_contents(sec_id)
-            payloads = [{
-                item.get("ratingKey", ""): PlexMediaPayload(
-                    key=int(item.get("ratingKey", "")),
-                    title=item.get("title", ""),
-                    summary=item.get("summary", ""),
-                    genres=[g["tag"] for g in item.get("Genre", [])] if item.get("Genre") else [],
-                    directors=[d["tag"] for d in item.get("Director", [])] if item.get("Director") else [],
-                    actors=[a["tag"] for a in item.get("Role", [])] if item.get("Role") else [],
-                    writers=[w["tag"] for w in item.get("Writer", [])] if item.get("Writer") else [],
-                    year=int(item.get("year")) if item.get("year", None) else 0,
-                    studio=item.get("studio", ""),
-                    rating=float(item.get("rating", 0.0)) * 10 if item.get("rating") else 0.0,
-                    content_rating=item.get("contentRating"),
-                    type=item.get("type", ""),
-                    watched=item.get("viewCount", 0) > 0,
-                    duration_seconds=int(item.get("duration", 0)),
-                    show_title=item.get("grandparentTitle"),
-                    season=item.get("parentTitle"),
-                    episode=int(item.get("index")) if item.get("index") else None,
-                )
-            } for item in all_items_data]
+            payloads = [
+                {
+                    item.get("ratingKey", ""): PlexMediaPayload(
+                        key=int(item.get("ratingKey", "")),
+                        title=item.get("title", ""),
+                        summary=item.get("summary", ""),
+                        genres=(
+                            [g["tag"] for g in item.get("Genre", [])] if item.get("Genre") else []
+                        ),
+                        directors=(
+                            [d["tag"] for d in item.get("Director", [])]
+                            if item.get("Director")
+                            else []
+                        ),
+                        actors=[a["tag"] for a in item.get("Role", [])] if item.get("Role") else [],
+                        writers=(
+                            [w["tag"] for w in item.get("Writer", [])] if item.get("Writer") else []
+                        ),
+                        year=int(item.get("year")) if item.get("year", None) else 0,
+                        studio=item.get("studio", ""),
+                        rating=float(item.get("rating", 0.0)) * 10 if item.get("rating") else 0.0,
+                        content_rating=item.get("contentRating"),
+                        type=item.get("type", ""),
+                        watched=item.get("viewCount", 0) > 0,
+                        duration_seconds=int(item.get("duration", 0)),
+                        show_title=item.get("grandparentTitle"),
+                        season=int(item.get("parentIndex")) if item.get("parentTitle") else None,
+                        episode=int(item.get("index")) if item.get("index") else None,
+                    )
+                }
+                for item in all_items_data
+            ]
             movies.extend([p for p in payloads if p and p[next(iter(p))].type == "movie"])
             episodes.extend([p for p in payloads if p and p[next(iter(p))].type == "episode"])
+
         async def upsert_collections(
             movie_collection: Optional[Collection[PlexMediaPayload]],
             episode_collection: Optional[Collection[PlexMediaPayload]],
@@ -403,41 +471,61 @@ class PlexTextSearch:
             episodes: list[dict[str, PlexMediaPayload]],
         ):
             if movie_collection:
-                await movie_collection.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in movies])), lambda x: x.key, False)
+                await movie_collection.upsert_data(
+                    list(itertools.chain.from_iterable([list(d.values()) for d in movies])),
+                    lambda x: x.key,
+                    False,
+                )
             if episode_collection:
-                await episode_collection.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in episodes])), lambda x: x.key, False)
-        asyncio.create_task(upsert_collections(
-            movie_collection,
-            episode_collection,
-            movies,
-            episodes
-        ))
-        if media and media.points_count and float(media.points_count) >= float(len(items))/2.0:
-            _LOGGER.info("Media collection already has %d points, skipping load", media.points_count)
+                await episode_collection.upsert_data(
+                    list(itertools.chain.from_iterable([list(d.values()) for d in episodes])),
+                    lambda x: x.key,
+                    False,
+                )
+
+        asyncio.create_task(
+            upsert_collections(movie_collection, episode_collection, movies, episodes)
+        )
+        if media and media.points_count and float(media.points_count) >= float(len(items)) / 2.0:
+            _LOGGER.info(
+                "Media collection already has %d points, skipping load", media.points_count
+            )
             self._loaded = True
-            asyncio.create_task(media.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in items])), lambda x: x.key, False))
+            asyncio.create_task(
+                media.upsert_data(
+                    list(itertools.chain.from_iterable([list(d.values()) for d in items])),
+                    lambda x: x.key,
+                    False,
+                )
+            )
             return
         _LOGGER.info("Upserting %d items into media collection", len(items))
-        await media.upsert_data(list(itertools.chain.from_iterable([list(d.values()) for d in items])), lambda x: x.key, False)
+        await media.upsert_data(
+            list(itertools.chain.from_iterable([list(d.values()) for d in items])),
+            lambda x: x.key,
+            False,
+        )
         self._loaded = True
 
     async def _schedule_load_items(self):
         await self._load_items()
+
         async def schedule_next_load():
-            await asyncio.sleep(60*60)
+            await asyncio.sleep(60 * 60)
             await self._schedule_load_items()
+
         self._load_items_task = asyncio.create_task(schedule_next_load())
 
     async def find_media(
-            self, 
-            query: PlexMediaQuery,
-            limit: int | None = None,
+        self,
+        query: PlexMediaQuery,
+        limit: int | None = None,
     ) -> list[PlexMediaPayload]:
         if not self._loaded:
             raise Exception("Items not loaded yet. Call try again in a bit.")
-        if query.type == 'movie':
+        if query.type == "movie":
             media = await self.knowledge_base.movies()
-        elif query.type == 'episode':
+        elif query.type == "episode":
             media = await self.knowledge_base.episodes()
         else:
             media = await self.knowledge_base.media()
@@ -445,4 +533,3 @@ class PlexTextSearch:
             return []
         results = await media.search(query, limit=limit)
         return [r.payload_data() for r in results]
-
