@@ -9,46 +9,42 @@ to handle non-blocking I/O and to provide informative error messages.
 
 import argparse
 import asyncio
-from enum import StrEnum
 import logging
-
 import os
+from enum import StrEnum
 
 # --- Import Statements ---
-from typing import Annotated, List, Literal, Optional, Callable
-from base import run_server, mcp
+from typing import Annotated, Callable, List, Literal, Optional
+
+from mcp.types import ToolAnnotations
+from plexapi.base import PlexSession as PlexAPISession
+from plexapi.client import PlexClient as PlexAPIClient
+from plexapi.exceptions import NotFound
+from pydantic import Field
+from rapidfuzz import process
 from starlette.requests import Request
 from starlette.responses import Response
-from mcp.types import ToolAnnotations
+
+from base import mcp, run_server
+from plex.format import (
+    format_client,
+    format_episode,
+    format_movie,
+    format_playlist,
+    format_session,
+)
 from plex.knowledge import KnowledgeBase, PlexMediaPayload, PlexMediaQuery
 from plex.plex_api import PlexAPI, PlexTextSearch
-from plex.format import format_client, format_episode, format_movie, format_playlist, format_session
-from plexapi.base import PlexSession as PlexAPISession
-from plexapi.exceptions import NotFound
-from plexapi.client import PlexClient as PlexAPIClient
-from rapidfuzz import process
-from pydantic import Field
-
-try:
-    import http.client as http_client
-except ImportError:
-    # Python 2
-    import httplib as http_client  # type: ignore
-
-import tracemalloc
-
-tracemalloc.start()
-
-http_client.HTTPConnection.debuglevel = 1
+from plex.tools.search import find_media_tool
 
 # You must initialize logging, otherwise you'll not see debug output.
 logging.basicConfig(
-    level=logging.DEBUG,  # Use DEBUG for more verbosity during development
+    level=logging.INFO,  # Use DEBUG for more verbosity during development
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 requests_log = logging.getLogger("requests.packages.urllib3")
-requests_log.setLevel(logging.DEBUG)
-requests_log.propagate = True
+requests_log.setLevel(logging.INFO)
+# requests_log.propagate = True
 
 # --- Logging Setup ---
 logger = logging.getLogger(__name__)
@@ -179,6 +175,7 @@ async def health(request: Request) -> Response:
     annotations=ToolAnnotations(
         title="Search For Movies",
     ),
+    enabled=False,
 )
 async def search_movies(
     title: Annotated[
@@ -397,6 +394,7 @@ async def get_movie_details(
             show_title=None,
             season=None,
             episode=None,
+            air_date=None,
         )
         logger.info("Returning %s", format_movie(payload))
         return format_movie(payload)
@@ -449,6 +447,7 @@ async def get_new_movies() -> str:
                 show_title=None,
                 season=None,
                 episode=None,
+                air_date=None,
             )
             for m in movies
         ]
@@ -468,6 +467,7 @@ async def get_new_movies() -> str:
     annotations=ToolAnnotations(
         title="Search For Shows or Episodes",
     ),
+    enabled=False,
 )
 async def search_shows(
     show_title: Annotated[
@@ -714,6 +714,7 @@ async def get_episode_details(
             ),
             episode=int(
                 episode["index"]) if "index" in episode and episode["index"] else None,
+            air_date=None,
         )
         return format_episode(payload)
     except Exception as e:
@@ -762,6 +763,7 @@ async def get_new_shows() -> str:
                 season=e["parentTitle"] if "parentTitle" in e and e["parentTitle"] else None,
                 episode=int(
                     e["index"]) if "index" in e and e["index"] else None,
+                air_date=None,
             )
             for e in episodes
         ]
@@ -1535,6 +1537,7 @@ async def get_playlist_items(
     annotations=ToolAnnotations(
         title="Get Movie Recommendations",
     ),
+    enabled=False,
 )
 async def get_movie_recommendations(
     title: Annotated[
@@ -1697,6 +1700,7 @@ async def get_movie_recommendations(
     annotations=ToolAnnotations(
         title="Get Show Recommendations",
     ),
+    enabled=False,
 )
 async def get_show_recommendations(
     show_title: Annotated[
@@ -1899,6 +1903,9 @@ async def get_show_recommendations(
     return "\n".join(results)
 
 
+find_media_tool(mcp)
+
+
 def add_plex_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         "-u",
@@ -1978,13 +1985,9 @@ async def on_run_server(args):
                 os.environ["QDRANT_PORT"])
         ),
     )
-    await plex_search._schedule_load_items()
+    asyncio.create_task(plex_search.schedule_load_items())
     logger.info("Connected to Plex server at %s",
                 os.environ["PLEX_SERVER_URL"])
-    # movies = await get_plex_search().find_media(type="movie", title="Terminator Dark Fate")
-    # client = await plex_api.get_client("dbb438549d0cc1c9-com-plexapp-android")
-    # if client is not None:
-    #     client.playMedia(await plex_api.get_media(movies[0]["key"])) if movies else logger.info("No movies found")
 
 
 def main():
