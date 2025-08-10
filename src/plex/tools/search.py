@@ -74,70 +74,100 @@ class Seed(BaseModel):
     title: Annotated[
         Optional[str],
         Field(
-            description="Exact title of a known movie, show, or episode to anchor the similarity search.",
+            description=(
+                "Exact title of a known movie, show, or episode to use as the anchor for similarity search. "
+                "The system retrieves media most similar to this title before applying other filters."
+            ),
             examples=["Alien: Romulus", "Inception"],
         ),
     ] = None
+
     key: Annotated[
         Optional[int],
         Field(
-            description="Plex library key of a known media item to anchor the search.",
+            description=(
+                "Unique Plex library key of a known media item to use as the anchor for similarity search."
+            ),
             examples=[12345, 67890],
         ),
     ] = None
+
     genres: Annotated[
         Optional[str],
         Field(
-            description="Comma-separated genres to use as an anchor (e.g., prefetch similar genre matches).",
+            description=(
+                "Comma-separated genres to anchor the similarity search. "
+                "Retrieves media with genres most similar to these values before applying other filters."
+            ),
             examples=["horror", "action, adventure"],
         ),
     ] = None
+
     summary: Annotated[
         Optional[str],
         Field(
-            description="Brief plot or synopsis to use as an anchor for semantic similarity.",
+            description=(
+                "Brief plot or synopsis to anchor the similarity search. "
+                "Retrieves media with similar summaries before applying other filters."
+            ),
             examples=["A thrilling sci-fi adventure.", "A mind-bending thriller."],
         ),
     ] = None
+
     series: Annotated[
         Optional[str],
         Field(
-            description="Title of a series to anchor the search to similar shows or episodes.",
+            description=(
+                "Series title to anchor the similarity search, focusing results on similar shows or episodes."
+            ),
             examples=["Alien", "Inception"],
         ),
     ] = None
+
     season: Annotated[
         Optional[int],
         Field(
-            description="Season number to anchor the search within a series context.",
+            description=("Season number to anchor the similarity search within a series context."),
             examples=[1, 2],
         ),
     ] = None
+
     episode: Annotated[
         Optional[int],
         Field(
-            description="Episode number to anchor the search within a season context.",
+            description=(
+                "Episode number to anchor the similarity search within a specific season."
+            ),
             examples=[1, 2],
         ),
     ] = None
+
     directors: Annotated[
         Optional[str],
         Field(
-            description="Comma-separated directors to anchor the search by creative style.",
+            description=(
+                "Comma-separated directors to anchor the similarity search by creative style."
+            ),
             examples=["Ridley Scott", "Christopher Nolan, Lisa Joy"],
         ),
     ] = None
+
     writers: Annotated[
         Optional[str],
         Field(
-            description="Comma-separated writers to anchor the search by writing style or story tone.",
+            description=(
+                "Comma-separated writers to anchor the similarity search by writing style or story tone."
+            ),
             examples=["Dan O'Bannon", "Jonathan Nolan, Lisa Joy"],
         ),
     ] = None
+
     actors: Annotated[
         Optional[str],
         Field(
-            description="Comma-separated actors to anchor the search by performance similarity or cast overlap.",
+            description=(
+                "Comma-separated actors to anchor the similarity search by performance style or cast overlap."
+            ),
             examples=["Sigourney Weaver", "Leonardo DiCaprio, Tom Hardy"],
         ),
     ] = None
@@ -170,7 +200,7 @@ class SeriesStatus(StrEnum):
 class Filters(BaseModel):
     similar: Annotated[
         Optional[str], Field(description="Title or key of similar media to anchor the query.")
-    ] = (None,)
+    ] = None
     genres_any: Annotated[
         Optional[List[Annotated[str, Field(description="Genre to match")]]],
         Field(description="At least one genre must match."),
