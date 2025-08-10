@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import date
 from enum import StrEnum
-import re
 from typing import Annotated, Any, List, Literal, Optional
 from typing import Type as ClassType
 from typing import Union
@@ -980,7 +980,8 @@ def find_media_tool(mcp: FastMCP) -> None:
                 Prefetch(
                     query=RecommendQuery(
                         recommend=RecommendInput(positive=[seed.id for seed in positive_seeds])
-                    )
+                    ),
+                    using="dense",
                 )
             )
         musts: list[Condition] = []
