@@ -806,11 +806,7 @@ async def filter_points(
     result = await KnowledgeBase.instance().qdrant_client.query_points(
         collection_name=scope, query_filter=Filter(must=musts), limit=10000
     )
-    return [
-        DataPoint(payload_class=PlexMediaPayload,
-                  version=0, score=1.0, **p.model_dump())
-        for p in result.points
-    ]
+    return [DataPoint(payload_class=PlexMediaPayload, **p.model_dump()) for p in result.points]
 
 
 async def query_as_tool(
