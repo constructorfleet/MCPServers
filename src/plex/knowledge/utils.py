@@ -24,7 +24,7 @@ from qdrant_client.models import SparseVector
 
 import logging
 
-from plex.knowledge.types import DataPoint, PlexMediaPayload, TModel
+from plex.knowledge.types import DataPoint, PlexMediaPayload, PlexMediaQuery, TModel
 
 _LOGGER = logging.getLogger(__name__)
 _STOPWORDS = {
@@ -74,8 +74,7 @@ def _sparse_from_text(text: str) -> SparseVector:
     index_to_val: dict[int, float] = {}
     for tok, tf in counts.items():
         h = (
-            int.from_bytes(hashlib.blake2b(tok.encode("utf-8"),
-                           digest_size=8).digest(), "little")
+            int.from_bytes(hashlib.blake2b(tok.encode("utf-8"), digest_size=8).digest(), "little")
             % 2147483647
         )
         val = 1.0 + math.log(tf)
@@ -106,8 +105,7 @@ async def ensure_collection(
     dim: int,
 ) -> None:
     """Create the collection if it doesn't exist, with dense + sparse vectors."""
-    _LOGGER.warning(
-        f"Ensuring collection '{name}' exists with {dim} dimensions.")
+    _LOGGER.warning(f"Ensuring collection '{name}' exists with {dim} dimensions.")
     collections = await client.get_collections()
     if any(c.name == name for c in collections.collections):
         return
@@ -133,8 +131,7 @@ async def ensure_collection(
     _LOGGER.warning(f"Creating collection '{name}'")
     await client.create_collection(
         collection_name=name,
-        vectors_config={"dense": VectorParams(
-            size=dim, distance=Distance.COSINE)},
+        vectors_config={"dense": VectorParams(size=dim, distance=Distance.COSINE)},
         sparse_vectors_config={"sparse": SparseVectorParams()},
         on_disk_payload=True,
     )
@@ -236,15 +233,14 @@ def heuristic_rerank(
         base = float(getattr(dp, "score", 0.0) or 0.0)
         g = jaccard(getattr(q, "genres", None), getattr(item, "genres", None))
         c = jaccard(getattr(q, "actors", None), getattr(item, "actors", None))
-        d = jaccard(getattr(q, "directors", None),
-                    getattr(item, "directors", None))
+        d = jaccard(getattr(q, "directors", None), getattr(item, "directors", None))
         blend = 0.75 * base + 0.15 * g + 0.06 * c + 0.04 * d
         rescored.append((blend, dp))
     rescored.sort(key=lambda t: t[0], reverse=True)
     return [dp for _, dp in rescored]
 
 
-def explain_match(q: PlexMediaPayload, item: PlexMediaPayload) -> Optional[str]:
+def explain_match(q: PlexMediaQuery, item: PlexMediaPayload) -> Optional[str]:
     """Generate an explanation of why a search result matched the query.
 
     Args:
@@ -268,8 +264,7 @@ def explain_match(q: PlexMediaPayload, item: PlexMediaPayload) -> Optional[str]:
         if common:
             reasons.append(f"cast overlap: {', '.join(common)}")
     if q.directors:
-        common = sorted(set(q.directors).intersection(
-            set(item.directors or [])))
+        common = sorted(set(q.directors).intersection(set(item.directors or [])))
         if common:
             reasons.append(f"director overlap: {', '.join(common)}")
     return ", ".join(reasons) or None
@@ -303,7 +298,7 @@ def title_shingles(title: Optional[str]) -> set[str]:
     # 3-gram shingles over tokens
     if len(tokens) < 3:
         return set(tokens)
-    return {" ".join(tokens[i: i + 3]) for i in range(len(tokens) - 2)}
+    return {" ".join(tokens[i : i + 3]) for i in range(len(tokens) - 2)}
 
 
 def sim_items(a: DataPoint[TModel], b: DataPoint[TModel]) -> float:

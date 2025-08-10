@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from datetime import date
 from enum import StrEnum
-from typing import Annotated, Any, List, Literal, Optional
+from typing import Annotated, Any, Iterable, List, Optional, Sequence, Tuple
 from typing import Type as ClassType
-from typing import Union
 
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
@@ -18,24 +16,22 @@ from qdrant_client.models import (
     Document,
     FieldCondition,
     Filter,
-    FormulaQuery,
-    MatchAny,
     MatchPhrase,
     MatchValue,
-    MultExpression,
     Prefetch,
+    QueryInterface,
     Range,
     RecommendInput,
     RecommendQuery,
     ScoredPoint,
-    SumExpression,
     VectorInput,
 )
 
 from plex.knowledge import KnowledgeBase
 from plex.knowledge.collection import Collection
 from plex.knowledge.types import DataPoint, MediaType, PlexMediaPayload, PlexMediaQuery
-from plex.knowledge.utils import _word_count, explain_match, heuristic_rerank
+
+# from plex.knowledge.utils import _word_count, heuristic_rerank
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -461,8 +457,245 @@ class Pagination(BaseModel):
     ] = 0
 
 
+class ExplainContext(BaseModel):
+    # what you sent to Qdrant
+    prefetch: list[Prefetch] = []
+    outer_filter: Optional[Filter] = None
+    query_kind: str  # "recommend" | "text" | "vector"
+    query_text: Optional[str] = None
+    positive_point_ids: list[VectorInput] = []
+    # optional: seed payloads to compute overlap against
+    seed_payloads: list[PlexMediaPayload] = []
+    # distance or similarity? (Qdrant returns "score" that depends on distance/sim metric)
+    score_interpretation: str = "similarity"  # or "distance"
+
+
+def _to_set(xs: Optional[Iterable[str]]) -> set[str]:
+    return set(map(str.lower, xs or []))
+
+
+def _jaccard(a: Iterable[str], b: Iterable[str]) -> float:
+    A, B = _to_set(a), _to_set(b)
+    if not A and not B:
+        return 0.0
+    return len(A & B) / len(A | B)
+
+
+def _explain_condition(
+    payload: PlexMediaPayload, c: Condition | List[Condition]
+) -> Tuple[bool, str]:
+    """
+    Return (passed?, human_reason)
+    Supports MatchValue/MatchAny style (by presence of 'value' or 'any') and numeric/datetime ranges.
+    """
+    if isinstance(c, list):
+        response = []
+        for cond in c:
+            result = _explain_condition(payload, cond)
+            response.append(result[1])
+            if not result[0]:
+                return result
+        return True, f"~ Conditions Passed: {', '.join(response)}"
+    if not isinstance(c, FieldCondition):
+        raise TypeError(f"Expected FieldCondition, got {type(c).__name__}")
+    key = c.key
+    val = getattr(payload, key, payload.__dict__.get(key, None))
+
+    # match …
+    if c.match is not None:
+        match = c.match.model_dump(exclude_none=True, exclude_unset=True)
+        if "value" in match:
+            wanted = str(match["value"]).lower()
+            if isinstance(val, list):
+                ok = wanted in _to_set(val)
+            else:
+                ok = (str(val).lower() == wanted) if val is not None else False
+            return ok, f"{'✓' if ok else '✗'} {key} == {match['value']!r}"
+        if "any" in match:
+            wanted_any = _to_set(match["any"])
+            cand = _to_set(val if isinstance(val, list) else [val] if val is not None else [])
+            ok = bool(wanted_any & cand)
+            return ok, f"{'✓' if ok else '✗'} {key} intersects {sorted(wanted_any)}"
+        if "phrase" in match:
+            wanted_phrase = str(match["phrase"]).lower()
+            if isinstance(val, list):
+                ok = any(wanted_phrase in _to_set(v) for v in val)
+            else:
+                ok = (str(val).lower() == wanted_phrase) if val is not None else False
+            return ok, f"{'✓' if ok else '✗'} {key} contains {match['phrase']!r}"
+
+    # range …
+    if c.range is not None:
+        gte = c.range.gte
+        lte = c.range.lte
+        ok = True
+        pieces = []
+        if gte is not None:
+            ok &= val is not None and val >= gte
+            pieces.append(f">={gte!r}")
+        if lte is not None:
+            ok &= val is not None and val <= lte
+            pieces.append(f"<={lte!r}")
+        return (
+            ok,
+            f"{'✓' if ok else '✗'} {key} within {' & '.join(pieces) or 'range'} (got {val!r})",
+        )
+
+    # default fall-through
+    return True, f"~ {key} (unrecognized condition type; assumed pass)"
+
+
+def _explain_filter(name: str, f: Optional[Filter], payload: PlexMediaPayload) -> list[str]:
+    notes: list[str] = []
+    if not f:
+        return notes
+
+    if f.must:
+        results = [
+            _explain_condition(payload, c)
+            for c in (
+                None if f.must is None else (f.must if isinstance(f.must, list) else [f.must])
+            )
+            or []
+        ]
+        ok = all(x for x, _ in results)
+        notes.append(f"{'PASS' if ok else 'FAIL'} must: " + "; ".join(msg for _, msg in results))
+    if f.should:
+        results = [
+            _explain_condition(payload, c)
+            for c in (
+                None
+                if f.should is None
+                else (f.should if isinstance(f.should, list) else [f.should])
+            )
+            or []
+        ]
+        # should is advisory; count hits
+        hits = sum(1 for ok, _ in results if ok)
+        notes.append(
+            f"{hits}/{len(results)} should matched: " + "; ".join(msg for _, msg in results)
+        )
+    if f.must_not:
+        results = [
+            _explain_condition(payload, c)
+            for c in (
+                None
+                if f.must_not is None
+                else (f.must_not if isinstance(f.must_not, list) else [f.must_not])
+            )
+            or []
+        ]
+        # ok=True means it *hit* a must_not
+        violations = [msg for ok, msg in results if ok]
+        if violations:
+            notes.append("VIOLATED must_not: " + "; ".join(violations))
+        else:
+            notes.append("PASS must_not: none violated")
+    return notes
+
+
+def _overlap_against_seeds(item: PlexMediaPayload, seeds: Sequence[PlexMediaPayload]) -> list[str]:
+    if not seeds:
+        return []
+    msgs = []
+    # Compute max overlaps across seeds (simple and useful)
+
+    def max_j(field: str) -> Tuple[float, Optional[str]]:
+        best = 0.0
+        best_title = None
+        for s in seeds:
+            a = getattr(item, field, []) or []
+            b = getattr(s, field, []) or []
+            j = _jaccard(a, b)
+            if j > best:
+                best, best_title = j, s.title
+        return best, best_title
+
+    for field, label in [
+        ("genres", "genres"),
+        ("actors", "actors"),
+        ("directors", "directors"),
+        ("writers", "writers"),
+    ]:
+        j, with_title = max_j(field)
+        if j > 0:
+            msgs.append(f"{label} overlap J={j:.2f} vs seed “{with_title}”")
+    return msgs
+
+
+# --- Main explainer ----------------------------------------------------------
+
+
+def explain_match(
+    result: ScoredPoint,
+    p: PlexMediaPayload,
+    ctx: ExplainContext,
+) -> str:
+    lines: list[str] = []
+
+    # Header
+    lines.append(f"{p.title} ({p.year})  — score={result.score:.4f} [{ctx.score_interpretation}]")
+    lines.append(
+        f"type={p.type}  duration={p.duration_seconds}s  content_rating={p.content_rating or 'N/A'}"
+    )
+
+    # Prefetch filters applied (candidate set)
+    for i, pf in enumerate(ctx.prefetch or []):
+        if pf.filter:
+            notes = _explain_filter(f"prefetch[{i}]", pf.filter, p)
+            if notes:
+                lines.append(f"• Prefetch[{i}] filter: " + " | ".join(notes))
+        else:
+            if pf.query:
+                lines.append(f"• Prefetch[{i}] query present (vector/text)")
+
+    # Outer filter (if any)
+    if ctx.outer_filter:
+        notes = _explain_filter("outer", ctx.outer_filter, p)
+        if notes:
+            lines.append("• Outer filter: " + " | ".join(notes))
+
+    # Query kind
+    if ctx.query_kind == "recommend":
+        if ctx.positive_point_ids:
+            lines.append(f"• Ranked by similarity to positive IDs: {ctx.positive_point_ids}")
+        else:
+            lines.append("• Ranked by recommend() style query (no IDs listed)")
+    elif ctx.query_kind == "text":
+        lines.append(f"• Ranked by text embedding: “{ctx.query_text}”")
+    elif ctx.query_kind == "vector":
+        lines.append("• Ranked by raw vector similarity")
+    else:
+        lines.append(f"• Ranked by: {ctx.query_kind}")
+
+    # Seed overlaps (if provided)
+    if ctx.seed_payloads:
+        overlaps = _overlap_against_seeds(p, ctx.seed_payloads)
+        if overlaps:
+            lines.append("• Overlap with seeds: " + " | ".join(overlaps))
+
+    # Content snippets that help LLM justify to users
+    # keep short to avoid turning this into a novel
+    if p.genres:
+        lines.append("• Genres: " + ", ".join(sorted(set(p.genres), key=str.lower)))
+    if p.actors:
+        lines.append(
+            "• Actors: "
+            + ", ".join(sorted(set(p.actors), key=str.lower)[:8])
+            + ("…" if len(p.actors) > 8 else "")
+        )
+    if p.directors:
+        lines.append("• Directors: " + ", ".join(sorted(set(p.directors), key=str.lower)))
+    if p.writers:
+        lines.append("• Writers: " + ", ".join(sorted(set(p.writers), key=str.lower)))
+
+    return "\n".join(lines)
+
+
 def point_to_media_result(
-    payload_class: ClassType[PlexMediaPayload], p: ScoredPoint, why: Optional[str] = None
+    payload_class: ClassType[PlexMediaPayload],
+    p: ScoredPoint,
+    context: ExplainContext,
 ) -> MediaResult:
     """Convert a Qdrant search result to a standardized MediaResult.
 
@@ -473,29 +706,15 @@ def point_to_media_result(
     Returns:
         MediaResult: Standardized result format for API responses
     """
-    payload = p.payload or {}
+    payload = PlexMediaPayload(**p.payload)  # type: ignore
     item = payload_class.model_validate(payload)
-    # Determine result type (we only store movies/episodes today)
-    rtype: Literal["series", "episode", "movie"]
-    if getattr(item, "type", None) == "episode":
-        rtype = "episode"
-    elif getattr(item, "type", None) == "series":
-        rtype = "series"
-    else:
-        rtype = "movie"
-    # IDs
-    series = None
-    # Prefer a stable collection/series/franchise key if present; fallback to show_title for episodes
-    if payload.get("collection"):
-        series = str(payload.get("collection"))
-    elif rtype == "episode":
-        series = str(getattr(item, "show_title", None) or "") or None
+    series = payload.show_title
     return MediaResult(
         key=item.key,
         result_type=item.type,
         title=item.title,
         year=item.year,
-        status=(payload.get("show_status") if rtype == "episode" else payload.get("status")),
+        status=None,
         series=series,
         genres=item.genres,
         actors=item.actors,
@@ -505,227 +724,236 @@ def point_to_media_result(
         synopsis=item.summary,
         content_rating=item.content_rating,
         rating=item.rating,
-        why=why,
+        why=explain_match(p, payload, context),
     )
 
 
-async def query_by_id_as_tool(
-    point_ids: list[Union[int, str]],
-    limit: int | None = None,
-    used_intent: str = "by_id",
-    used_scope: str = "auto",
-) -> MediaSearchResponse:
-    """Query for similar items based on a specific point ID.
+# async def query_by_id_as_tool(
+#     point_ids: list[Union[int, str]],
+#     limit: int | None = None,
+#     used_intent: str = "by_id",
+#     used_scope: str = "auto",
+# ) -> MediaSearchResponse:
+#     """Query for similar items based on a specific point ID.
 
-    Args:
-        point_ids: ID of the point to find similar items for
-        limit: Maximum number of results to return
-        used_intent: Intent used for this query (for diagnostics)
-        used_scope: Scope used for this query (for diagnostics)
+#     Args:
+#         point_ids: ID of the point to find similar items for
+#         limit: Maximum number of results to return
+#         used_intent: Intent used for this query (for diagnostics)
+#         used_scope: Scope used for this query (for diagnostics)
 
-    Returns:
-        ToolResponse: Formatted response with similar items
-    """
-    result = await KnowledgeBase.instance().qdrant_client.retrieve(
-        collection_name="media",
-        ids=point_ids,
-        limit=limit or 10,
-        with_payload=True,
-        with_vectors=True,
-    )
-    points = [
-        DataPoint(payload_class=PlexMediaPayload, version=0, score=1.0, **p.model_dump())
-        for p in result
-    ]
-    results = [point_to_media_result(PlexMediaPayload, dp, why=None) for dp in points]
-    return MediaSearchResponse(
-        results=results,
-        total=len(results),
-        used_intent=used_intent,
-        used_scope=used_scope,
-        diagnostics=Diagnostics(
-            retrieval=Retrieval(dense_weight=1.0, sparse_weight=0.0),
-            reranker=None,
-            filters_applied=False,
-            fallback_used=False,
-        ),
-    )
-
-
-async def recommend_as_tool(
-    positive: list[VectorInput],
-    negative: Optional[list[VectorInput]] = None,
-    limit: int | None = None,
-    used_intent: str = "recommend",
-    used_scope: str = "auto",
-) -> MediaSearchResponse:
-    """Generate recommendations based on positive and negative examples.
-
-    Args:
-        positive: List of positive examples (IDs or vectors)
-        negative: Optional list of negative examples (IDs or vectors)
-        limit: Maximum number of recommendations to return
-        used_intent: Intent used for this query (for diagnostics)
-        used_scope: Scope used for this query (for diagnostics)
-
-    Returns:
-        ToolResponse: Formatted response with recommendations
-    """
-    # The client passes arbitrary dict as query; Qdrant accepts {"recommend": {"positive": [...], "negative": [...]}}
-    q: dict[str, Any] = {"recommend": {"positive": positive}}
-    if negative:
-        q["recommend"]["negative"] = negative
-    result = await KnowledgeBase.instance().qdrant_client.query_points(
-        collection_name="media",
-        query=RecommendQuery(
-            recommend=RecommendInput(positive=positive, negative=negative)
-        ),  # type: ignore[arg-type]
-        limit=limit or 10,
-        with_payload=True,
-    )
-    points = [
-        DataPoint.model_validate({"payload_class": PlexMediaPayload, **p.model_dump()})
-        for p in result.points
-    ]
-    results = [point_to_media_result(PlexMediaPayload, dp, why=None) for dp in points]
-    return MediaSearchResponse(
-        results=results,
-        total=len(results),
-        used_intent=used_intent,
-        used_scope=used_scope,
-        diagnostics=Diagnostics(
-            retrieval=Retrieval(dense_weight=1.0, sparse_weight=0.0),
-            reranker=None,
-            filters_applied=False,
-            fallback_used=False,
-        ),
-    )
+#     Returns:
+#         ToolResponse: Formatted response with similar items
+#     """
+#     result = await KnowledgeBase.instance().qdrant_client.retrieve(
+#         collection_name="media",
+#         ids=point_ids,
+#         limit=limit or 10,
+#         with_payload=True,
+#         with_vectors=True,
+#     )
+#     points = [
+#         DataPoint(payload_class=PlexMediaPayload,
+#                   version=0, score=1.0, **p.model_dump())
+#         for p in result
+#     ]
+#     results = [point_to_media_result(
+#         PlexMediaPayload, dp, why=None) for dp in points]
+#     return MediaSearchResponse(
+#         results=results,
+#         total=len(results),
+#         used_intent=used_intent,
+#         used_scope=used_scope,
+#         diagnostics=Diagnostics(
+#             retrieval=Retrieval(dense_weight=1.0, sparse_weight=0.0),
+#             reranker=None,
+#             filters_applied=False,
+#             fallback_used=False,
+#         ),
+#     )
 
 
-async def search_as_tool_boosted(
-    scope: Scope,
-    data: PlexMediaQuery,
-    boosts: dict[str, float],
-    limit: int | None = None,
-    used_intent: str = "auto",
-    fusion_prelimit: int = 200,
-    enable_rerank: bool = False,
-    reranker_name: str = "heuristic-v1",
-) -> MediaSearchResponse:
-    """Search with boosted scoring for specific fields.
+# async def recommend_as_tool(
+#     positive: list[VectorInput],
+#     negative: Optional[list[VectorInput]] = None,
+#     limit: int | None = None,
+#     used_intent: str = "recommend",
+#     used_scope: str = "auto",
+# ) -> MediaSearchResponse:
+#     """Generate recommendations based on positive and negative examples.
 
-    This method performs search with additional boost scoring applied to
-    specified fields that match the query payload.
+#     Args:
+#         positive: List of positive examples (IDs or vectors)
+#         negative: Optional list of negative examples (IDs or vectors)
+#         limit: Maximum number of recommendations to return
+#         used_intent: Intent used for this query (for diagnostics)
+#         used_scope: Scope used for this query (for diagnostics)
 
-    Args:
-        data: Media payload to search for
-        boosts: Dictionary mapping field names to boost weights
-        limit: Maximum number of results to return
-        used_intent: Intent used for this query (for diagnostics)
-        used_scope: Scope used for this query (for diagnostics)
-
-    Returns:
-        ToolResponse: Formatted response with boosted search results
-    """
-    # Build dense prefetch from the structured payload’s document
-    doc_text = PlexMediaPayload.document(data)
-    dense_doc = Document(
-        text=doc_text, model=KnowledgeBase.instance().model, options={"cuda": True}
-    )  # type: ignore
-    # Build formula: sum of $score + weighted matches on payload keys
-    # Example boosts: {"genres": 0.5, "actors": 0.25}
-    sum_terms: SumExpression = SumExpression(sum=["$score"])
-    for key, w in boosts.items():
-        # If the query payload has a value for this key, boost documents matching ANY of those values
-        values = getattr(data, key, None)
-        if not values:
-            continue
-        if not isinstance(values, list):
-            values = [values]
-        sum_terms.sum.append(
-            MultExpression(
-                mult=[float(w), FieldCondition(key=key, match=MatchAny(any=list(values)))]
-            )
-        )
-    result = await KnowledgeBase.instance().qdrant_client.query_points(
-        collection_name=scope.value,
-        prefetch=Prefetch(
-            query=dense_doc, limit=max(fusion_prelimit, (limit or 50) * 3), using="dense"
-        ),
-        query=FormulaQuery(formula=sum_terms),
-        limit=limit or 10,
-        with_payload=True,
-    )
-    points = [
-        DataPoint.model_validate({"payload_class": PlexMediaPayload, **p.model_dump()})
-        for p in result.points
-    ]
-    # Optional rerank on top
-    if enable_rerank:
-        points = heuristic_rerank(data, points)
-    results = [point_to_media_result(PlexMediaPayload, dp, why=None) for dp in points]
-    return MediaSearchResponse(
-        results=results,
-        total=len(results),
-        used_intent=used_intent,
-        used_scope=scope.value,
-        diagnostics=Diagnostics(
-            retrieval=Retrieval(dense_weight=1.0, sparse_weight=0.0),
-            reranker=reranker_name if enable_rerank else None,
-            filters_applied=True,
-            fallback_used=False,
-        ),
-    )
+#     Returns:
+#         ToolResponse: Formatted response with recommendations
+#     """
+#     # The client passes arbitrary dict as query; Qdrant accepts {"recommend": {"positive": [...], "negative": [...]}}
+#     q: dict[str, Any] = {"recommend": {"positive": positive}}
+#     if negative:
+#         q["recommend"]["negative"] = negative
+#     result = await KnowledgeBase.instance().qdrant_client.query_points(
+#         collection_name="media",
+#         query=RecommendQuery(
+#             recommend=RecommendInput(positive=positive, negative=negative)
+#         ),  # type: ignore[arg-type]
+#         limit=limit or 10,
+#         with_payload=True,
+#     )
+#     points = [
+#         DataPoint.model_validate(
+#             {"payload_class": PlexMediaPayload, **p.model_dump()})
+#         for p in result.points
+#     ]
+#     results = [point_to_media_result(
+#         PlexMediaPayload, dp, why=None) for dp in points]
+#     return MediaSearchResponse(
+#         results=results,
+#         total=len(results),
+#         used_intent=used_intent,
+#         used_scope=used_scope,
+#         diagnostics=Diagnostics(
+#             retrieval=Retrieval(dense_weight=1.0, sparse_weight=0.0),
+#             reranker=None,
+#             filters_applied=False,
+#             fallback_used=False,
+#         ),
+#     )
 
 
-async def search_as_tool(
-    scope: Scope,
-    data: PlexMediaQuery,
-    limit: int | None = None,
-    used_intent: str = "auto",
-    enable_two_pass_fusion: bool = False,
-    fusion_dense_weight: float = 0.7,
-    fusion_sparse_weight: float = 0.3,
-    reranker_name: str = "heuristic-v1",
-) -> MediaSearchResponse:
-    """Search the collection and return results in tool response format.
+# async def search_as_tool_boosted(
+#     scope: Scope,
+#     data: PlexMediaQuery,
+#     boosts: dict[str, float],
+#     limit: int | None = None,
+#     used_intent: str = "auto",
+#     fusion_prelimit: int = 200,
+#     enable_rerank: bool = False,
+#     reranker_name: str = "heuristic-v1",
+# ) -> MediaSearchResponse:
+#     """Search with boosted scoring for specific fields.
 
-    Args:
-        data: Media payload to search for
-        limit: Maximum number of results to return
-        used_intent: Intent used for this query (for diagnostics)
-        used_scope: Scope used for this query (for diagnostics)
+#     This method performs search with additional boost scoring applied to
+#     specified fields that match the query payload.
 
-    Returns:
-        ToolResponse: Formatted response with search results and diagnostics
-    """
-    collection = await ScopeCollection(scope)
-    points = await collection.search(data, limit=limit)
-    results: list[MediaResult] = []
-    for dp in points:
-        item = dp.payload_data()
-        why = explain_match(data, item)
-        results.append(point_to_media_result(PlexMediaPayload, dp, why=why))
-    hint = " ".join([data.title or "", data.summary or "", data.show_title or ""]).strip()
-    wc = _word_count(hint)
-    if enable_two_pass_fusion:
-        dense_w = fusion_dense_weight
-        sparse_w = fusion_sparse_weight
-    else:
-        dense_w = 0.8 if wc > 12 else 0.7
-        sparse_w = 0.2 if wc > 12 else 0.3
-    return MediaSearchResponse(
-        results=results,
-        total=len(results),
-        used_intent=used_intent,
-        used_scope=scope.value,
-        diagnostics=Diagnostics(
-            retrieval=Retrieval(dense_weight=dense_w, sparse_weight=sparse_w),
-            reranker=reranker_name,
-            filters_applied=True,
-            fallback_used=False,
-        ),
-    )
+#     Args:
+#         data: Media payload to search for
+#         boosts: Dictionary mapping field names to boost weights
+#         limit: Maximum number of results to return
+#         used_intent: Intent used for this query (for diagnostics)
+#         used_scope: Scope used for this query (for diagnostics)
+
+#     Returns:
+#         ToolResponse: Formatted response with boosted search results
+#     """
+#     # Build dense prefetch from the structured payload’s document
+#     doc_text = PlexMediaPayload.document(data)
+#     dense_doc = Document(
+#         text=doc_text, model=KnowledgeBase.instance().model, options={
+#             "cuda": True}
+#     )  # type: ignore
+#     # Build formula: sum of $score + weighted matches on payload keys
+#     # Example boosts: {"genres": 0.5, "actors": 0.25}
+#     sum_terms: SumExpression = SumExpression(sum=["$score"])
+#     for key, w in boosts.items():
+#         # If the query payload has a value for this key, boost documents matching ANY of those values
+#         values = getattr(data, key, None)
+#         if not values:
+#             continue
+#         if not isinstance(values, list):
+#             values = [values]
+#         sum_terms.sum.append(
+#             MultExpression(
+#                 mult=[float(w), FieldCondition(
+#                     key=key, match=MatchAny(any=list(values)))]
+#             )
+#         )
+#     result = await KnowledgeBase.instance().qdrant_client.query_points(
+#         collection_name=scope.value,
+#         prefetch=Prefetch(
+#             query=dense_doc, limit=max(fusion_prelimit, (limit or 50) * 3), using="dense"
+#         ),
+#         query=FormulaQuery(formula=sum_terms),
+#         limit=limit or 10,
+#         with_payload=True,
+#     )
+#     points = [
+#         DataPoint.model_validate(
+#             {"payload_class": PlexMediaPayload, **p.model_dump()})
+#         for p in result.points
+#     ]
+#     # Optional rerank on top
+#     if enable_rerank:
+#         points = heuristic_rerank(data, points)
+#     results = [point_to_media_result(
+#         PlexMediaPayload, dp, why=None) for dp in points]
+#     return MediaSearchResponse(
+#         results=results,
+#         total=len(results),
+#         used_intent=used_intent,
+#         used_scope=scope.value,
+#         diagnostics=Diagnostics(
+#             retrieval=Retrieval(dense_weight=1.0, sparse_weight=0.0),
+#             reranker=reranker_name if enable_rerank else None,
+#             filters_applied=True,
+#             fallback_used=False,
+#         ),
+#     )
+
+
+# async def search_as_tool(
+#     scope: Scope,
+#     data: PlexMediaQuery,
+#     limit: int | None = None,
+#     used_intent: str = "auto",
+#     enable_two_pass_fusion: bool = False,
+#     fusion_dense_weight: float = 0.7,
+#     fusion_sparse_weight: float = 0.3,
+#     reranker_name: str = "heuristic-v1",
+# ) -> MediaSearchResponse:
+#     """Search the collection and return results in tool response format.
+
+#     Args:
+#         data: Media payload to search for
+#         limit: Maximum number of results to return
+#         used_intent: Intent used for this query (for diagnostics)
+#         used_scope: Scope used for this query (for diagnostics)
+
+#     Returns:
+#         ToolResponse: Formatted response with search results and diagnostics
+#     """
+#     collection = await ScopeCollection(scope)
+#     points = await collection.search(data, limit=limit)
+#     results: list[MediaResult] = []
+#     for dp in points:
+#         item = dp.payload_data()
+#         why = explain_match(data, item)
+#         results.append(point_to_media_result(PlexMediaPayload, dp, why=why))
+#     hint = " ".join([data.title or "", data.summary or "",
+#                     data.show_title or ""]).strip()
+#     wc = _word_count(hint)
+#     if enable_two_pass_fusion:
+#         dense_w = fusion_dense_weight
+#         sparse_w = fusion_sparse_weight
+#     else:
+#         dense_w = 0.8 if wc > 12 else 0.7
+#         sparse_w = 0.2 if wc > 12 else 0.3
+#     return MediaSearchResponse(
+#         results=results,
+#         total=len(results),
+#         used_intent=used_intent,
+#         used_scope=scope.value,
+#         diagnostics=Diagnostics(
+#             retrieval=Retrieval(dense_weight=dense_w, sparse_weight=sparse_w),
+#             reranker=reranker_name,
+#             filters_applied=True,
+#             fallback_used=False,
+#         ),
+#     )
 
 
 async def filter_points(
@@ -789,51 +1017,52 @@ async def filter_points(
     return [DataPoint(payload_class=PlexMediaPayload, **p.model_dump()) for p in result.points]
 
 
-async def query_as_tool(
-    scope: Scope,
-    query: str,
-    limit: int | None = None,
-    used_intent: str = "auto",
-    used_scope: str = "auto",
-    enable_two_pass_fusion: bool = False,
-    fusion_dense_weight: float = 0.7,
-    fusion_sparse_weight: float = 0.3,
-    reranker_name: str = "heuristic-v1",
-) -> MediaSearchResponse:
-    """Perform free-text search and return results in tool response format.
+# async def query_as_tool(
+#     scope: Scope,
+#     query: str,
+#     limit: int | None = None,
+#     used_intent: str = "auto",
+#     used_scope: str = "auto",
+#     enable_two_pass_fusion: bool = False,
+#     fusion_dense_weight: float = 0.7,
+#     fusion_sparse_weight: float = 0.3,
+#     reranker_name: str = "heuristic-v1",
+# ) -> MediaSearchResponse:
+#     """Perform free-text search and return results in tool response format.
 
-    Args:
-        query: Free-text search query
-        limit: Maximum number of results to return
-        used_intent: Intent used for this query (for diagnostics)
-        used_scope: Scope used for this query (for diagnostics)
+#     Args:
+#         query: Free-text search query
+#         limit: Maximum number of results to return
+#         used_intent: Intent used for this query (for diagnostics)
+#         used_scope: Scope used for this query (for diagnostics)
 
-    Returns:
-        MediaSearchResponse: Formatted response with search results and diagnostics
-    """
-    collection = await ScopeCollection(scope)
-    points = await collection.query(query, limit=limit)
-    results = [point_to_media_result(PlexMediaPayload, dp, why=None) for dp in points]
-    wc = _word_count(query)
-    if enable_two_pass_fusion:
-        dense_w = fusion_dense_weight
-        sparse_w = fusion_sparse_weight
-    else:
-        dense_w = 0.8 if wc > 12 else 0.6
-        sparse_w = 0.2 if wc > 12 else 0.4
+#     Returns:
+#         MediaSearchResponse: Formatted response with search results and diagnostics
+#     """
+#     collection = await ScopeCollection(scope)
+#     points = await collection.query(query, limit=limit)
+#     results = [point_to_media_result(
+#         PlexMediaPayload, dp, why=None) for dp in points]
+#     wc = _word_count(query)
+#     if enable_two_pass_fusion:
+#         dense_w = fusion_dense_weight
+#         sparse_w = fusion_sparse_weight
+#     else:
+#         dense_w = 0.8 if wc > 12 else 0.6
+#         sparse_w = 0.2 if wc > 12 else 0.4
 
-    return MediaSearchResponse(
-        results=results,
-        total=len(results),
-        used_intent=used_intent,
-        used_scope=used_scope,
-        diagnostics=Diagnostics(
-            retrieval=Retrieval(dense_weight=dense_w, sparse_weight=sparse_w),
-            reranker=reranker_name,
-            filters_applied=False,
-            fallback_used=False,
-        ),
-    )
+#     return MediaSearchResponse(
+#         results=results,
+#         total=len(results),
+#         used_intent=used_intent,
+#         used_scope=used_scope,
+#         diagnostics=Diagnostics(
+#             retrieval=Retrieval(dense_weight=dense_w, sparse_weight=sparse_w),
+#             reranker=reranker_name,
+#             filters_applied=False,
+#             fallback_used=False,
+#         ),
+#     )
 
 
 empty_seed = Seed()
@@ -869,24 +1098,22 @@ def find_media_tool(mcp: FastMCP) -> None:
                 ],
             ),
         ] = None,
-        similar_to_filter: Annotated[
-            Seed,
+        similar_to_key: Annotated[
+            Optional[int],
             Field(
-                default=empty_seed,
-                title="Similarity Anchor Filter",
-                description=(
-                    "Attributes of known media used as an anchor for similarity search. "
-                    "The search process first finds media most similar to these attributes, "
-                    "then applies all other filters and query terms to that set.\n\n"
-                    "Use when the request is about 'things like this' or 'similar to this'.\n\n"
-                    "Examples:\n"
-                    '1. What movies are like Together? -> title="Together"\n'
-                    '2. Find me a thriller movie with Scarlett Johansson -> actors="Scarlett Johansson", genres="thriller"\n'
-                    '3. Episodes like the one where the doctor fights the alien queen -> summary="doctor fights the alien queen"'
-                ),
-                json_schema_extra=Seed.model_json_schema(),
+                default=None,
+                title="Similarity Key Anchor Filter",
+                description="The key of the media to use as a similarity anchor.",
             ),
-        ] = empty_seed,
+        ] = None,
+        similar_to_title: Annotated[
+            Optional[str],
+            Field(
+                default=None,
+                title="Similarity Title Anchor Filter",
+                description="The title of the media to use as a similarity anchor.",
+            ),
+        ] = None,
         filters: Annotated[
             Filters,
             Field(
@@ -924,7 +1151,12 @@ def find_media_tool(mcp: FastMCP) -> None:
         # safety: Annotated[Optional[Safety], Field(
         #     description="Safety options for the search.")] = None,
     ) -> MediaSearchResponse:
-        if uncategorized_query is None and similar_to_filter is None and filters is None:
+        if (
+            uncategorized_query is None
+            and similar_to_key is None
+            and similar_to_title is None
+            and filters is None
+        ):
             raise ValueError("At least one of query, seeds, or filters must be provided")
         collection = str(media_type)
         if collection not in ("movies", "episodes"):
@@ -932,58 +1164,16 @@ def find_media_tool(mcp: FastMCP) -> None:
                 collection = str(media_type) + "s"
             else:
                 raise ValueError("media_type must be 'movies' or 'episodes'")
-        prefetch: list[Prefetch] = []
-        if any(
-            [
-                similar_to_filter.title,
-                similar_to_filter.summary,
-                similar_to_filter.series,
-                similar_to_filter.season,
-                similar_to_filter.episode,
-                similar_to_filter.genres,
-                similar_to_filter.directors,
-                similar_to_filter.writers,
-                similar_to_filter.actors,
-                filters.similar,
-            ]
-        ):
-            positive_seeds = await filter_points(
-                collection,
-                PlexMediaQuery(
-                    title=similar_to_filter.title or filters.similar,
-                    summary=similar_to_filter.summary,
-                    show_title=similar_to_filter.series,
-                    season=similar_to_filter.season,
-                    episode=(
-                        similar_to_filter.episode if similar_to_filter.episode is not None else None
-                    ),
-                    genres=(
-                        re.split(r"[, ]", similar_to_filter.genres)
-                        if similar_to_filter.genres
-                        else None
-                    ),
-                    directors=(
-                        similar_to_filter.directors.split(",")
-                        if similar_to_filter.directors
-                        else None
-                    ),
-                    writers=(
-                        similar_to_filter.writers.split(",") if similar_to_filter.writers else None
-                    ),
-                    actors=(
-                        similar_to_filter.actors.split(",") if similar_to_filter.actors else None
-                    ),
-                ),
+        positive_points: list[VectorInput] = []
+        if similar_to_key or similar_to_title:
+            response = await filter_points(
+                collection, PlexMediaQuery(key=similar_to_key, title=similar_to_title)
             )
+            positive_points.extend([point.id for point in response])
 
-            prefetch.append(
-                Prefetch(
-                    query=RecommendQuery(
-                        recommend=RecommendInput(positive=[seed.id for seed in positive_seeds])
-                    ),
-                    using="dense",
-                )
-            )
+        prefetch: list[Prefetch] = []
+        query_filter: Filter | None = None
+        query: QueryInterface | None = None
         musts: list[Condition] = []
         must_nots: list[Condition] = []
         shoulds: list[Condition] = []
@@ -1131,21 +1321,41 @@ def find_media_tool(mcp: FastMCP) -> None:
                     range=Range(lte=filters.year_range_max),
                 )
             )
+        if len(musts) > 0 or len(must_nots) > 0 or len(shoulds) > 0:
+            query_filter = Filter(must=musts, must_not=must_nots, should=shoulds)
+            prefetch.append(Prefetch(filter=query_filter))
+
+        if uncategorized_query is not None and len(positive_points) > 0:
+            prefetch.append(
+                Prefetch(
+                    query=Document(
+                        text=uncategorized_query,
+                        model=KnowledgeBase.instance().model,
+                        options={"cuda": True},
+                    )
+                )
+            )
+            uncategorized_query = None  # Don't double-query
+            query = RecommendQuery(
+                recommend=RecommendInput(
+                    positive=positive_points,
+                )
+            )
+        elif uncategorized_query is not None:
+            query = Document(
+                text=uncategorized_query,
+                model=KnowledgeBase.instance().model,
+                options={"cuda": True},
+            )
+        elif len(positive_points) > 0:
+            query = RecommendQuery(recommend=RecommendInput(positive=positive_points))
 
         _LOGGER.info(
             f'Filtering points with conditions: {json.dumps({
                 "collection_name": collection,
-                "prefetch": [p.model_dump() for p in prefetch or []],
-                "query": (
-                    Document(
-                        text=uncategorized_query,
-                        model=KnowledgeBase.instance().model,
-                        options={"cuda": True},
-                    ).model_dump()
-                    if uncategorized_query
-                    else None
-                ),
-                "query_filter": Filter(must=musts, should=shoulds).model_dump(),
+                "prefetch": [p.model_dump() for p in prefetch],
+                "query": query.model_dump() if query else None,
+                "query_filter": query_filter.model_dump() if query_filter else None,
                 "using": "dense",
                 "limit": (pagination.limit if pagination and pagination.limit is not None else 1000),
                 "offset": pagination.offset if pagination else None,
@@ -1156,16 +1366,8 @@ def find_media_tool(mcp: FastMCP) -> None:
         results = await KnowledgeBase.instance().qdrant_client.query_points(
             collection_name=collection,
             prefetch=prefetch,
-            query=(
-                Document(
-                    text=uncategorized_query,
-                    model=KnowledgeBase.instance().model,
-                    options={"cuda": True},
-                )
-                if uncategorized_query
-                else None
-            ),
-            query_filter=Filter(must=musts, should=shoulds),
+            query=query,
+            query_filter=query_filter,
             using="dense",
             limit=(pagination.limit if pagination and pagination.limit is not None else 1000),
             offset=pagination.offset if pagination else None,
@@ -1174,10 +1376,21 @@ def find_media_tool(mcp: FastMCP) -> None:
 
         _LOGGER.info(f"Found {len(results.points)} points matching the query and filters.")
         _LOGGER.info(json.dumps(results.model_dump(), indent=2))
+        query_kind = "vector"
+        if len(positive_points) > 0:
+            query_kind = "recommend"
+
+        context = ExplainContext(
+            prefetch=prefetch,
+            outer_filter=query_filter,
+            query_kind=query_kind,
+            query_text=uncategorized_query,
+            positive_point_ids=positive_points,
+        )
 
         return MediaSearchResponse(
             results=[
-                point_to_media_result(PlexMediaPayload, point)
+                point_to_media_result(PlexMediaPayload, point, context)
                 for point in results.points[
                     : (pagination.limit if pagination.limit else None) or 10
                 ]
