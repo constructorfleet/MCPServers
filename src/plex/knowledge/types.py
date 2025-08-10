@@ -5,10 +5,11 @@ from pydantic import BaseModel
 from qdrant_client.models import ScoredPoint
 
 MediaType = Literal["movie"] | Literal["episode"]
+T = TypeVar("T")
 
 
 class Review(BaseModel):
-    key: str
+    key: int
     reviewer: str
     text: str
 
@@ -64,8 +65,7 @@ class PlexMediaPayload(BaseModel):
         if item.summary:
             parts.append("Summary: " + item.summary)
         if item.reviews:
-            parts.append(
-                "Reviews: " + " ".join(review.text for review in item.reviews))
+            parts.append("Reviews: " + " ".join(review.text for review in item.reviews))
         if item.genres:
             parts.append("Genres: " + ", ".join(item.genres))
         if item.actors:

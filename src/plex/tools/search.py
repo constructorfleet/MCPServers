@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date
+from datetime import date, timedelta
 from enum import StrEnum
-from typing import Annotated, Any, Iterable, List, Optional, Sequence, Tuple
+from typing import Annotated, Any, Generic, Iterable, List, Optional, Sequence, Tuple, cast
 from typing import Type as ClassType
+from typing import TypeVar
 
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
@@ -18,6 +19,7 @@ from qdrant_client.models import (
     Filter,
     MatchPhrase,
     MatchValue,
+    MinShould,
     Prefetch,
     QueryInterface,
     Range,
@@ -34,6 +36,8 @@ from plex.knowledge.types import DataPoint, MediaType, PlexMediaPayload, PlexMed
 # from plex.knowledge.utils import _word_count, heuristic_rerank
 
 _LOGGER = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 class Scope(StrEnum):
@@ -459,10 +463,10 @@ class Pagination(BaseModel):
 
 class ExplainContext(BaseModel):
     # what you sent to Qdrant
-    prefetch: list[Prefetch] = []
+    prefetch: Optional[Prefetch] = None
     outer_filter: Optional[Filter] = None
-    query_kind: str  # "recommend" | "text" | "vector"
-    query_text: Optional[str] = None
+    query_kind: str = "vector"  # "recommend" | "text" | "vector"
+    query: Optional[QueryInterface] = None
     positive_point_ids: list[VectorInput] = []
     # optional: seed payloads to compute overlap against
     seed_payloads: list[PlexMediaPayload] = []
@@ -640,14 +644,13 @@ def explain_match(
     )
 
     # Prefetch filters applied (candidate set)
-    for i, pf in enumerate(ctx.prefetch or []):
-        if pf.filter:
-            notes = _explain_filter(f"prefetch[{i}]", pf.filter, p)
-            if notes:
-                lines.append(f"• Prefetch[{i}] filter: " + " | ".join(notes))
-        else:
-            if pf.query:
-                lines.append(f"• Prefetch[{i}] query present (vector/text)")
+    if ctx.prefetch and ctx.prefetch.filter:
+        notes = _explain_filter("prefetch", ctx.prefetch.filter, p)
+        if notes:
+            lines.append("• Prefetch filter: " + " | ".join(notes))
+    elif ctx.prefetch:
+        if ctx.prefetch.query:
+            lines.append("• Prefetch query present (vector/text)")
 
     # Outer filter (if any)
     if ctx.outer_filter:
@@ -662,7 +665,9 @@ def explain_match(
         else:
             lines.append("• Ranked by recommend() style query (no IDs listed)")
     elif ctx.query_kind == "text":
-        lines.append(f"• Ranked by text embedding: “{ctx.query_text}”")
+        lines.append(
+            f"• Ranked by text embedding: “{cast(Document, ctx.query).text if isinstance(ctx.query, Document) else ''}”"
+        )
     elif ctx.query_kind == "vector":
         lines.append("• Ranked by raw vector similarity")
     else:
@@ -1070,6 +1075,87 @@ empty_filters = Filters()
 empty_pagination = Pagination()
 
 
+class MinMax(BaseModel, Generic[T]):
+    minimum: Optional[T] = None
+    maximum: Optional[T] = None
+
+
+def build_filters(
+    genres: Optional[list[str]] = None,
+    directors: Optional[list[str]] = None,
+    writers: Optional[list[str]] = None,
+    actors: Optional[list[str]] = None,
+    aired_date: Optional[MinMax[date | int]] = None,
+    series: Optional[str] = None,
+    season: Optional[list[int]] = None,
+    episode: Optional[list[int]] = None,
+    rating: Optional[MinMax[float]] = None,
+    watched: Optional[bool] = None,
+) -> Optional[Filter]:
+    musts: list[Condition] = []
+    # must_nots: list[Condition] = []
+    shoulds: list[Condition] = []
+    min_should: MinShould | None = None
+    if genres:
+        musts.extend(
+            [FieldCondition(key="genres", match=MatchValue(value=genre)) for genre in genres]
+        )
+    if directors:
+        musts.extend(
+            [
+                FieldCondition(key="directors", match=MatchValue(value=director))
+                for director in directors
+            ]
+        )
+    if writers:
+        musts.extend(
+            [FieldCondition(key="writers", match=MatchValue(value=writer)) for writer in writers]
+        )
+    if actors:
+        musts.extend(
+            [FieldCondition(key="actors", match=MatchValue(value=actor)) for actor in actors]
+        )
+    if aired_date:
+        after: date | None = None
+        before: date | None = None
+        if aired_date.minimum:
+            after = (
+                aired_date.minimum
+                if isinstance(aired_date.minimum, date)
+                else date.today() - timedelta(days=aired_date.minimum)
+            )
+        if aired_date.maximum:
+            before = (
+                aired_date.maximum
+                if isinstance(aired_date.maximum, date)
+                else date.today() - timedelta(days=aired_date.maximum)
+            )
+        if after or before:
+            musts.append(
+                FieldCondition(key="aired_date", range=DatetimeRange(gte=after, lte=before))
+            )
+    if series:
+        musts.append(FieldCondition(key="season", match=MatchValue(value=series)))
+    if season:
+        shoulds.extend([FieldCondition(key="season", match=MatchValue(value=e)) for e in season])
+    if episode:
+        shoulds.extend([FieldCondition(key="episode", match=MatchValue(value=e)) for e in episode])
+    if rating:
+        if rating.minimum:
+            musts.append(FieldCondition(key="rating", range=Range(gte=rating.minimum)))
+        if rating.maximum:
+            musts.append(FieldCondition(key="rating", range=Range(lte=rating.maximum)))
+    if watched:
+        musts.append(FieldCondition(key="watched", match=MatchValue(value=watched)))
+    if len(musts) == 0 and len(shoulds) == 0 and min_should is None:
+        return None
+    return Filter(
+        must=musts,
+        should=shoulds,
+        min_should=min_should,
+    )
+
+
 def find_media_tool(mcp: FastMCP) -> None:
     @mcp.tool(
         name="find_media",
@@ -1087,313 +1173,230 @@ def find_media_tool(mcp: FastMCP) -> None:
                 examples=["movies", "episodes"],
             ),
         ],
-        uncategorized_query: Annotated[
+        similar_to: Annotated[
             Optional[str],
             Field(
                 default=None,
-                title="Uncategorized Query",
-                description="Natural language request for vague prompts.",
+                title="Similarity Title Anchor Filter",
+                description="The title of another media to use as a similarity anchor for the query: similar genres, plots, synopsis. etc/",
+            ),
+        ] = None,
+        with_genre: Annotated[
+            Optional[list[str]],
+            Field(
+                default=None,
+                title="Genres",
+                description="Query for media that is categorized by these genres.",
+            ),
+        ] = None,
+        directed_by: Annotated[
+            Optional[list[str]],
+            Field(
+                default=None,
+                title="Directors",
+                description="Query for media that was directed by these individuals.",
+            ),
+        ] = None,
+        written_by: Annotated[
+            Optional[list[str]],
+            Field(
+                default=None,
+                title="Writers",
+                description="Query for media that was written by these individuals.",
+            ),
+        ] = None,
+        starring: Annotated[
+            Optional[list[str]],
+            Field(
+                default=None,
+                title="Actors",
+                description="Query for media that the following individuals act in.",
+            ),
+        ] = None,
+        with_title: Annotated[
+            Optional[str],
+            Field(
+                default=None,
+                title="Title",
+                description="Query for media that has titles similar to this.",
+            ),
+        ] = None,
+        summary: Annotated[
+            Optional[str],
+            Field(
+                default=None,
+                title="Plot",
+                description="Query for media with similar plots.",
+            ),
+        ] = None,
+        aired_before: Annotated[
+            Optional[date],
+            Field(
+                default=None,
+                title="Aired Before",
+                description="Query for media aired before: <date> or <int> days ago",
+            ),
+        ] = None,
+        aired_after: Annotated[
+            Optional[date],
+            Field(
+                default=None,
+                title="Aired After",
+                description="Query for media that aired after: <date> or <int> days ago",
+            ),
+        ] = None,
+        series: Annotated[
+            Optional[str],
+            Field(
+                default=None,
+                title="Series",
+                description="Query for media that is part of this series.",
+            ),
+        ] = None,
+        season: Annotated[
+            Optional[list[int]],
+            Field(
+                default=None,
+                title="Seasons",
+                description="Query for media with these season number.",
+            ),
+        ] = None,
+        episode: Annotated[
+            Optional[list[int]],
+            Field(
+                default=None,
+                title="Episodes",
+                description="Query for media with these episode numbers.",
+            ),
+        ] = None,
+        rating_min: Annotated[
+            Optional[float],
+            Field(
+                default=None,
+                title="Minimum Rating",
+                description="Query for media with a minimum rating.",
+            ),
+        ] = None,
+        rating_max: Annotated[
+            Optional[float],
+            Field(
+                default=None,
+                title="Maximum Rating",
+                description="Query for media with a maximum rating.",
+            ),
+        ] = None,
+        watched: Annotated[
+            Optional[bool],
+            Field(
+                default=None,
+                title="Watched Status",
+                description="Query for media that has or has not been watched.",
+            ),
+        ] = None,
+        limit: Annotated[
+            Optional[int],
+            Field(
+                default=None,
+                title="Limit",
+                description="Query for a maximum number of results.",
+            ),
+        ] = None,
+        offset: Annotated[
+            Optional[int],
+            Field(
+                default=None,
+                title="Offset",
+                description="Query for the number of results to skip.",
+            ),
+        ] = None,
+        full_text_query: Annotated[
+            Optional[str],
+            Field(
+                default=None,
+                title="Full Text Query",
+                description="Generic full-text, natural language request for vague prompts.",
                 examples=[
                     "What's that episode where a journalist, an artist, a musician are invited to a billionaire's house and there's a meteor at the end?"
                 ],
             ),
         ] = None,
-        similar_to_key: Annotated[
-            Optional[int],
-            Field(
-                default=None,
-                title="Similarity Key Anchor Filter",
-                description="The key of the media to use as a similarity anchor.",
-            ),
-        ] = None,
-        similar_to_title: Annotated[
-            Optional[str],
-            Field(
-                default=None,
-                title="Similarity Title Anchor Filter",
-                description="The title of the media to use as a similarity anchor.",
-            ),
-        ] = None,
-        filters: Annotated[
-            Filters,
-            Field(
-                default=empty_filters,
-                title="Filters",
-                description="Filters to apply to the search.",
-                json_schema_extra=Filters.model_json_schema(),
-            ),
-        ] = empty_filters,
-        pagination: Annotated[
-            Pagination,
-            Field(
-                default=empty_pagination,
-                title="Pagination",
-                description="Pagination options.",
-                json_schema_extra=Pagination.model_json_schema(),
-            ),
-        ] = empty_pagination,
-        # episode_focus: Annotated[
-        #     Optional[EpisodeFocus], Field(description="Episode-specific targeting for TV.")
-        # ] = None,
-        # vibes: Annotated[Optional[Vibes], Field(description="Vibes to guide the search.")] = None,
-        # hybrid: Annotated[Optional[Hybrid], Field(description="Hybrid search options.")] = None,
-        # rerank: Annotated[Optional[Rerank], Field(description="Reranking options.")] = None,
-        # diversity: Annotated[
-        #     Optional[Diversity], Field(description="Options to diversify the results.")
-        # ] = None,
-        # ranking: Annotated[
-        #     Optional[Ranking], Field(description="Options to rerank the results.")
-        # ] = None,
-        # include: Annotated[
-        #     Optional[List[IncludeEnum]],
-        #     Field(description="Specify the content to include in the search results."),
-        # ] = None,
-        # safety: Annotated[Optional[Safety], Field(
-        #     description="Safety options for the search.")] = None,
     ) -> MediaSearchResponse:
-        if (
-            uncategorized_query is None
-            and similar_to_key is None
-            and similar_to_title is None
-            and filters is None
-        ):
-            raise ValueError("At least one of query, seeds, or filters must be provided")
+        """Find media items (movies or episodes) based on various criteria."""
         collection = str(media_type)
         if collection not in ("movies", "episodes"):
             if collection in ["movie", "episode"]:
                 collection = str(media_type) + "s"
             else:
                 raise ValueError("media_type must be 'movies' or 'episodes'")
-        positive_points: list[VectorInput] = []
-        if similar_to_key or similar_to_title:
-            response = await filter_points(
-                collection, PlexMediaQuery(key=similar_to_key, title=similar_to_title)
-            )
-            positive_points.extend([point.id for point in response])
-
-        prefetch: list[Prefetch] = []
         query_filter: Filter | None = None
-        query: QueryInterface | None = None
-        musts: list[Condition] = []
-        must_nots: list[Condition] = []
-        shoulds: list[Condition] = []
-        if filters.genres_all:
-            musts.extend(
-                [
-                    FieldCondition(key="genres", match=MatchValue(value=genre))
-                    for genre in filters.genres_all
-                ]
-            )
-        if filters.genres_any:
-            shoulds.extend(
-                [
-                    FieldCondition(key="air_date", match=MatchValue(value=genre))
-                    for genre in filters.genres_any
-                ]
-            )
-        if filters.air_date_range_min:
-            musts.append(
-                FieldCondition(
-                    key="air_date",
-                    range=DatetimeRange(gte=filters.air_date_range_min),
-                )
-            )
-        if filters.air_date_range_max:
-            musts.append(
-                FieldCondition(
-                    key="air_date",
-                    range=DatetimeRange(lte=filters.air_date_range_max),
-                )
-            )
-        if filters.season_range_min:
-            musts.append(
-                FieldCondition(
-                    key="season",
-                    range=Range(gte=filters.season_range_min),
-                )
-            )
-        if filters.season_range_max:
-            musts.append(
-                FieldCondition(
-                    key="season",
-                    range=Range(lte=filters.season_range_max),
-                )
-            )
-        if filters.season:
-            musts.append(FieldCondition(key="season", match=MatchValue(value=filters.season)))
-        if filters.episode_range_min:
-            musts.append(
-                FieldCondition(
-                    key="episode",
-                    range=Range(gte=filters.episode_range_min),
-                )
-            )
-        if filters.episode_range_max:
-            musts.append(
-                FieldCondition(
-                    key="episode",
-                    range=Range(lte=filters.episode_range_max),
-                )
-            )
-        if filters.episode:
-            musts.append(FieldCondition(key="episode", match=MatchValue(value=filters.episode)))
-        if filters.exclude_titles:
-            must_nots.extend(
-                [
-                    FieldCondition(key="title", match=MatchValue(value=title))
-                    for title in filters.exclude_titles
-                ]
-            )
-        if filters.content_rating_any:
-            shoulds.extend(
-                [
-                    FieldCondition(key="content_rating", match=MatchValue(value=rating))
-                    for rating in filters.content_rating_any
-                ]
-            )
-        if filters.runtime_range_min:
-            musts.append(
-                FieldCondition(
-                    key="runtime",
-                    range=Range(gte=filters.runtime_range_min),
-                )
-            )
-        if filters.runtime_range_max:
-            musts.append(
-                FieldCondition(
-                    key="runtime",
-                    range=Range(lte=filters.runtime_range_max),
-                )
-            )
-        if filters.directors_all:
-            musts.extend(
-                [
-                    FieldCondition(key="directors", match=MatchValue(value=director))
-                    for director in filters.directors_all
-                ]
-            )
-        if filters.directors_any:
-            shoulds.extend(
-                [
-                    FieldCondition(key="directors", match=MatchValue(value=director))
-                    for director in filters.directors_any
-                ]
-            )
-        if filters.actors_all:
-            musts.extend(
-                [
-                    FieldCondition(key="actors", match=MatchValue(value=actor))
-                    for actor in filters.actors_all
-                ]
-            )
-        if filters.actors_any:
-            shoulds.extend(
-                [
-                    FieldCondition(key="actors", match=MatchValue(value=actor))
-                    for actor in filters.actors_any
-                ]
-            )
-        if filters.writers_all:
-            musts.extend(
-                [
-                    FieldCondition(key="writers", match=MatchValue(value=writer))
-                    for writer in filters.writers_all
-                ]
-            )
-        if filters.writers_any:
-            shoulds.extend(
-                [
-                    FieldCondition(key="writers", match=MatchValue(value=writer))
-                    for writer in filters.writers_any
-                ]
-            )
-        if filters.year_range_min:
-            musts.append(
-                FieldCondition(
-                    key="year",
-                    range=Range(gte=filters.year_range_min),
-                )
-            )
-        if filters.year_range_max:
-            musts.append(
-                FieldCondition(
-                    key="year",
-                    range=Range(lte=filters.year_range_max),
-                )
-            )
-        if len(musts) > 0 or len(must_nots) > 0 or len(shoulds) > 0:
-            query_filter = Filter(must=musts, must_not=must_nots, should=shoulds)
-            prefetch.append(Prefetch(filter=query_filter))
+        context = ExplainContext()
+        if query_filter := build_filters(
+            genres=with_genre,
+            directors=directed_by,
+            writers=written_by,
+            actors=starring,
+            aired_date=MinMax(
+                minimum=aired_after,
+                maximum=aired_before,
+            ),
+            series=series,
+            season=season,
+            episode=episode,
+            rating=MinMax(minimum=rating_min, maximum=rating_max),
+            watched=watched,
+        ):
+            context.outer_filter = query_filter
+            context.prefetch = Prefetch(filter=query_filter)
 
-        if uncategorized_query is not None and len(positive_points) > 0:
-            prefetch.append(
-                Prefetch(
-                    query=Document(
-                        text=uncategorized_query,
-                        model=KnowledgeBase.instance().model,
-                        options={"cuda": True},
-                    )
+        if similar_to:
+            if full_text_query:
+                context.prefetch = Prefetch(
+                    prefetch=context.prefetch,
+                    query=KnowledgeBase.instance().document(full_text_query),
                 )
+            context.query_kind = "similar"
+            context.positive_point_ids = [
+                p.id
+                for p in await filter_points(collection, filters=PlexMediaQuery(title=similar_to))
+            ]
+            context.query = RecommendQuery(
+                recommend=RecommendInput(positive=context.positive_point_ids)
             )
-            uncategorized_query = None  # Don't double-query
-            query = RecommendQuery(
-                recommend=RecommendInput(
-                    positive=positive_points,
-                )
-            )
-        elif uncategorized_query is not None:
-            query = Document(
-                text=uncategorized_query,
-                model=KnowledgeBase.instance().model,
-                options={"cuda": True},
-            )
-        elif len(positive_points) > 0:
-            query = RecommendQuery(recommend=RecommendInput(positive=positive_points))
+        elif full_text_query:
+            context.query = KnowledgeBase.instance().document(full_text_query)
 
         _LOGGER.info(
             f'Filtering points with conditions: {json.dumps({
                 "collection_name": collection,
-                "prefetch": [p.model_dump() for p in prefetch],
-                "query": query.model_dump() if query else None,
+                "prefetch": context.prefetch.model_dump() if context.prefetch else None,
+                "query": context.query.model_dump() if context.query and isinstance(context.query, BaseModel) else None,
                 "query_filter": query_filter.model_dump() if query_filter else None,
                 "using": "dense",
-                "limit": (pagination.limit if pagination and pagination.limit is not None else 1000),
-                "offset": pagination.offset if pagination else None,
+                "limit": (limit if limit is not None else 1000),
+                "offset": (offset if offset is not None else None),
                 "with_payload": True,
             }, indent=2)}'
         )
 
         results = await KnowledgeBase.instance().qdrant_client.query_points(
             collection_name=collection,
-            prefetch=prefetch,
-            query=query,
-            query_filter=query_filter,
+            prefetch=context.prefetch,
+            query=context.query,
+            query_filter=context.outer_filter,
             using="dense",
-            limit=(pagination.limit if pagination and pagination.limit is not None else 1000),
-            offset=pagination.offset if pagination else None,
+            limit=(limit if limit is not None else 1000),
+            offset=(offset if offset is not None else None),
             with_payload=True,
         )
 
         _LOGGER.info(f"Found {len(results.points)} points matching the query and filters.")
         _LOGGER.info(json.dumps(results.model_dump(), indent=2))
-        query_kind = "vector"
-        if len(positive_points) > 0:
-            query_kind = "recommend"
-
-        context = ExplainContext(
-            prefetch=prefetch,
-            outer_filter=query_filter,
-            query_kind=query_kind,
-            query_text=uncategorized_query,
-            positive_point_ids=positive_points,
-        )
-
+        must = context.outer_filter.must if context.outer_filter is not None else []
+        should = context.outer_filter.should if context.outer_filter is not None else []
         return MediaSearchResponse(
             results=[
                 point_to_media_result(PlexMediaPayload, point, context)
-                for point in results.points[
-                    : (pagination.limit if pagination.limit else None) or 10
-                ]
+                for point in results.points[: (limit if limit else None) or 10]
             ],
             total=len(results.points),
             used_intent="auto",
@@ -1401,7 +1404,7 @@ def find_media_tool(mcp: FastMCP) -> None:
             diagnostics=Diagnostics(
                 retrieval=Retrieval(dense_weight=1.0, sparse_weight=0.0),
                 reranker=None,
-                filters_applied=len(musts) > 0 or len(shoulds) > 0,
-                fallback_used=uncategorized_query is not None,
+                filters_applied=len(must) > 0 or len(should) > 0,  # type: ignore
+                fallback_used=context.query is not None,
             ),
         )

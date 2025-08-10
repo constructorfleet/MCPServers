@@ -25,7 +25,7 @@ from qdrant_client.models import (
 
 from plex.knowledge.types import TModel
 from plex.knowledge.utils import (
-    _sparse_from_text,
+    sparse_from_text,
     apply_diversity,
     fuse_two_pass,
     heuristic_rerank,
@@ -33,6 +33,8 @@ from plex.knowledge.utils import (
 from plex.knowledge.types import DataPoint, PlexMediaPayload
 
 import logging
+
+# from plex.utils import batch_map
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,13 +62,20 @@ class Collection(CollectionInfo, Generic[TModel]):
             points: Points to upsert
             wait: Whether to wait for the operation to complete
         """
+        _LOGGER.info(f"Upserting points to'{self.name}': {len(points)}")  # type: ignore
+        # await batch_map(
+        #     points,
+        #     self.qdrant_client.upsert(
+        #         collection_name=self.name, points=points, wait=wait
+        #     ),  # type: ignore
+        #     batch_size=500,
+        # )
         await self.qdrant_client.upsert(collection_name=self.name, points=points, wait=wait)
 
     async def upsert_data(
         self,
         data: list[TModel],
-        id_getter: Callable[[TModel], Optional[int | str]
-                            ] = lambda x: getattr(x, "id", None),
+        id_getter: Callable[[TModel], Optional[int | str]] = lambda x: getattr(x, "id", None),
         wait: bool = True,
     ):
         """Insert or update typed data objects in the collection.
@@ -88,7 +97,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             vectors.append(
                 {
                     "dense": Document(text=doc_text, model=self.model, options={"cuda": True}),
-                    "sparse": _sparse_from_text(doc_text),
+                    "sparse": sparse_from_text(doc_text),
                 }
             )
             payloads.append(item.model_dump(exclude_unset=True))
@@ -98,7 +107,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             ids=ids,
             vectors=vectors,
             payload=payloads,
-            parallel=10,
+            parallel=5,
             wait=wait,
         )
 
@@ -136,28 +145,22 @@ class Collection(CollectionInfo, Generic[TModel]):
         shoulds: list[Condition] = []
         musts: list[Condition] = []
         if data.title:
-            shoulds.append(FieldCondition(
-                key="title", match=MatchPhrase(phrase=data.title)))
+            shoulds.append(FieldCondition(key="title", match=MatchPhrase(phrase=data.title)))
         if data.show_title:
             shoulds.append(
-                FieldCondition(key="show_title", match=MatchPhrase(
-                    phrase=data.show_title))
+                FieldCondition(key="show_title", match=MatchPhrase(phrase=data.show_title))
             )
         if data.genres:
             for genre in data.genres:
-                shoulds.append(FieldCondition(
-                    key="genres", match=MatchPhrase(phrase=genre)))
+                shoulds.append(FieldCondition(key="genres", match=MatchPhrase(phrase=genre)))
         if data.watched is not None:
-            musts.append(FieldCondition(
-                key="watched", match=MatchValue(value=data.watched)))
+            musts.append(FieldCondition(key="watched", match=MatchValue(value=data.watched)))
         if data.actors:
             for actor in data.actors:
-                musts.append(FieldCondition(
-                    key="actors", match=MatchPhrase(phrase=actor)))
+                musts.append(FieldCondition(key="actors", match=MatchPhrase(phrase=actor)))
         if data.directors:
             for director in data.directors:
-                musts.append(FieldCondition(key="directors",
-                             match=MatchPhrase(phrase=director)))
+                musts.append(FieldCondition(key="directors", match=MatchPhrase(phrase=director)))
         query_filter = Filter(
             must=musts if len(musts) > 0 else None,
             min_should=(
@@ -177,7 +180,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             dense_doc = Document(
                 text=doc_text, model=self.model, options={"cuda": True}
             )  # type: ignore
-            sparse_vec = _sparse_from_text(doc_text)
+            sparse_vec = sparse_from_text(doc_text)
             prelimit = max(fusion_prelimit, (limit or 50) * 3)
             prefetch = [
                 Prefetch(
@@ -201,8 +204,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                 limit=limit or 10000,
             )
             points = [
-                DataPoint.model_validate(
-                    {"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
                 for p in result.points
             ]
             if enable_rerank:
@@ -217,7 +219,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             dense_doc = Document(
                 text=doc_text, model=self.model, options={"cuda": True}
             )  # type: ignore
-            sparse_vec = _sparse_from_text(doc_text)
+            sparse_vec = sparse_from_text(doc_text)
             prelimit = max(fusion_prelimit, (limit or 50) * 3)
             d_res, s_res = await asyncio.gather(
                 *[
@@ -247,8 +249,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             )
             # Truncate to requested limit and adapt to DataPoint
             points = [
-                DataPoint.model_validate(
-                    {"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
                 for p in fused_points[: (limit or 10000)]
             ]
             if enable_rerank:
@@ -269,9 +270,8 @@ class Collection(CollectionInfo, Generic[TModel]):
         #     else True
         # )
         doc_text = self.make_document(data)
-        query = Document(text=doc_text, model=self.model,
-                         options={"cuda": True})  # type: ignore
-        sparse = _sparse_from_text(doc_text)
+        query = Document(text=doc_text, model=self.model, options={"cuda": True})  # type: ignore
+        sparse = sparse_from_text(doc_text)
         vecs = []
         for x in self.qdrant_client._embed_documents([query.text], self.model):
             vecs.append(x[1])
@@ -305,12 +305,10 @@ class Collection(CollectionInfo, Generic[TModel]):
             limit=limit or 10000,
             with_payload=True,
         )
-        _LOGGER.warn(
-            f"Qdrant query result: {json.dumps(result.model_dump(), indent=2)}")
+        _LOGGER.warn(f"Qdrant query result: {json.dumps(result.model_dump(), indent=2)}")
         points = sorted(
             [
-                DataPoint.model_validate(
-                    {"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
                 for p in result.points
             ],
             key=lambda x: x.score,
@@ -345,7 +343,7 @@ class Collection(CollectionInfo, Generic[TModel]):
         """
         doc = Document(text=query, model=self.model, options={"cuda": True})
         if enable_two_pass_fusion:
-            sparse = _sparse_from_text(query)
+            sparse = sparse_from_text(query)
             prelimit = max(fusion_prelimit, (limit or 50) * 3)
             d_res, s_res = await asyncio.gather(
                 *[
@@ -372,8 +370,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                 fusion_sparse_weight,
             )
             points = [
-                DataPoint.model_validate(
-                    {"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
                 for p in fused_points[: (limit or 10000)]
             ]
             if enable_rerank:
@@ -403,7 +400,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                 points = apply_diversity(points, limit or 10000, 0.3, 1)
             return points
         # else: built-in hybrid path
-        sparse = _sparse_from_text(query)
+        sparse = sparse_from_text(query)
         result = await self.qdrant_client.query_points(
             collection_name=self.name,
             query=doc,
@@ -414,8 +411,7 @@ class Collection(CollectionInfo, Generic[TModel]):
         )
         points = sorted(
             [
-                DataPoint.model_validate(
-                    {"payload_class": PlexMediaPayload, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": PlexMediaPayload, **p.model_dump()})
                 for p in result.points
             ],
             key=lambda x: x.score,

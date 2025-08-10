@@ -6,6 +6,7 @@ from qdrant_client.async_qdrant_client import AsyncQdrantClient
 from plex.knowledge.collection import Collection
 from plex.knowledge.types import PlexMediaPayload, PlexMediaQuery, TModel
 from plex.knowledge.utils import ensure_collection, ensure_payload_indexes
+from qdrant_client.models import Document
 import logging
 
 logging.getLogger("qdrant_client").setLevel(logging.DEBUG)
@@ -68,6 +69,15 @@ class KnowledgeBase:
             os.environ.get("DIVERSITY_LAMBDA", "0.3"))
         # cap results per series/franchise
         self.max_per_series: int = int(os.environ.get("MAX_PER_SERIES", "1"))
+
+    def document(self, doc: str | PlexMediaQuery | PlexMediaPayload) -> Document:
+        """Create a document representation of the knowledge base."""
+        return Document(
+            text=doc if isinstance(
+                doc, str) else PlexMediaPayload.document(doc),
+            model=self.model,
+            options={"cuda": True},
+        )
 
     async def ensure_movies(self, dim: int | None = None) -> Collection[PlexMediaPayload]:
         """Ensure the movies collection exists with proper configuration.
