@@ -64,7 +64,8 @@ class Collection(CollectionInfo, Generic[TModel]):
     async def upsert_data(
         self,
         data: list[TModel],
-        id_getter: Callable[[TModel], Optional[int | str]] = lambda x: getattr(x, "id", None),
+        id_getter: Callable[[TModel], Optional[int | str]
+                            ] = lambda x: getattr(x, "id", None),
         wait: bool = True,
     ):
         """Insert or update typed data objects in the collection.
@@ -86,7 +87,8 @@ class Collection(CollectionInfo, Generic[TModel]):
             vectors.append(
                 {
                     "dense": Document(
-                        text=doc_text, model=self.model, options={"cuda": True, "device_ids": [1]}
+                        text=doc_text, model=self.model, options={
+                            "cuda": True, "device_ids": [1]}
                     ),
                     "sparse": _sparse_from_text(doc_text),
                 }
@@ -131,22 +133,28 @@ class Collection(CollectionInfo, Generic[TModel]):
         shoulds: list[Condition] = []
         musts: list[Condition] = []
         if data.title:
-            shoulds.append(FieldCondition(key="title", match=MatchPhrase(phrase=data.title)))
+            shoulds.append(FieldCondition(
+                key="title", match=MatchPhrase(phrase=data.title)))
         if data.show_title:
             shoulds.append(
-                FieldCondition(key="show_title", match=MatchPhrase(phrase=data.show_title))
+                FieldCondition(key="show_title", match=MatchPhrase(
+                    phrase=data.show_title))
             )
         if data.genres:
             for genre in data.genres:
-                shoulds.append(FieldCondition(key="genres", match=MatchPhrase(phrase=genre)))
+                shoulds.append(FieldCondition(
+                    key="genres", match=MatchPhrase(phrase=genre)))
         if data.watched is not None:
-            musts.append(FieldCondition(key="watched", match=MatchValue(value=data.watched)))
+            musts.append(FieldCondition(
+                key="watched", match=MatchValue(value=data.watched)))
         if data.actors:
             for actor in data.actors:
-                musts.append(FieldCondition(key="actors", match=MatchPhrase(phrase=actor)))
+                musts.append(FieldCondition(
+                    key="actors", match=MatchPhrase(phrase=actor)))
         if data.directors:
             for director in data.directors:
-                musts.append(FieldCondition(key="directors", match=MatchPhrase(phrase=director)))
+                musts.append(FieldCondition(key="directors",
+                             match=MatchPhrase(phrase=director)))
         query_filter = Filter(
             must=musts if len(musts) > 0 else None,
             min_should=(
@@ -190,7 +198,8 @@ class Collection(CollectionInfo, Generic[TModel]):
                 limit=limit or 10000,
             )
             points = [
-                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate(
+                    {"payload_class": self.payload_class, **p.model_dump()})
                 for p in result.points
             ]
             if enable_rerank:
@@ -235,7 +244,8 @@ class Collection(CollectionInfo, Generic[TModel]):
             )
             # Truncate to requested limit and adapt to DataPoint
             points = [
-                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate(
+                    {"payload_class": self.payload_class, **p.model_dump()})
                 for p in fused_points[: (limit or 10000)]
             ]
             if enable_rerank:
@@ -256,7 +266,8 @@ class Collection(CollectionInfo, Generic[TModel]):
         #     else True
         # )
         doc_text = self.make_document(data)
-        query = Document(text=doc_text, model=self.model, options={"cuda": True})  # type: ignore
+        query = Document(text=doc_text, model=self.model,
+                         options={"cuda": True})  # type: ignore
         sparse = _sparse_from_text(doc_text)
         vecs = []
         for x in self.qdrant_client._embed_documents([query.text], self.model):
@@ -291,10 +302,12 @@ class Collection(CollectionInfo, Generic[TModel]):
             limit=limit or 10000,
             with_payload=True,
         )
-        _LOGGER.warn(f"Qdrant query result: {json.dumps(result.model_dump(), indent=2)}")
+        _LOGGER.warn(
+            f"Qdrant query result: {json.dumps(result.model_dump(), indent=2)}")
         points = sorted(
             [
-                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate(
+                    {"payload_class": self.payload_class, **p.model_dump()})
                 for p in result.points
             ],
             key=lambda x: x.score,
@@ -356,7 +369,8 @@ class Collection(CollectionInfo, Generic[TModel]):
                 fusion_sparse_weight,
             )
             points = [
-                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate(
+                    {"payload_class": self.payload_class, **p.model_dump()})
                 for p in fused_points[: (limit or 10000)]
             ]
             if enable_rerank:
@@ -377,6 +391,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                     content_rating=None,
                     show_title=None,
                     season=None,
+                    air_date=None,
                     episode=None,
                 )
                 points = heuristic_rerank(q, points)
@@ -396,7 +411,8 @@ class Collection(CollectionInfo, Generic[TModel]):
         )
         points = sorted(
             [
-                DataPoint.model_validate({"payload_class": PlexMediaPayload, **p.model_dump()})
+                DataPoint.model_validate(
+                    {"payload_class": PlexMediaPayload, **p.model_dump()})
                 for p in result.points
             ],
             key=lambda x: x.score,
@@ -418,6 +434,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                 writers=[],
                 duration_seconds=0,
                 content_rating=None,
+                air_date=None,
                 show_title=None,
                 season=None,
                 episode=None,
