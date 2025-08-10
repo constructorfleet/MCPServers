@@ -86,10 +86,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             doc_text = self.make_document(item)
             vectors.append(
                 {
-                    "dense": Document(
-                        text=doc_text, model=self.model, options={
-                            "cuda": True, "device_ids": [1]}
-                    ),
+                    "dense": Document(text=doc_text, model=self.model, options={"cuda": True}),
                     "sparse": _sparse_from_text(doc_text),
                 }
             )
