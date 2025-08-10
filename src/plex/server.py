@@ -221,8 +221,7 @@ async def search_movies(
         Field(
             description="Actor name to filter by",
             default=None,
-            examples=["Leonardo DiCaprio",
-                      "Arnold Schwarzenegger", "Harrison Ford"],
+            examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
         ),
     ] = None,
     content_rating: Annotated[
@@ -294,8 +293,7 @@ async def search_movies(
                     ),
                     limit=1,
                 )
-                similar_movie = similar_movies[0].model_dump(
-                ) if similar_movies else None
+                similar_movie = similar_movies[0].model_dump() if similar_movies else None
 
             if not similar_movie:
                 return f"ERROR: Movie with key/title {similar_to} not found."
@@ -334,7 +332,7 @@ async def search_movies(
     # Validate the limit parameter
     # Default to 5 if limit is 0 or negative
     limit = max(1, limit) if limit else 5
-    for i, m in enumerate(movies[start_index: limit + start_index], start=1):
+    for i, m in enumerate(movies[start_index : limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
         # type: ignore
         results.append(f"Result #{i}:\nKey: {m.key}\n{format_movie(m)}")
@@ -390,12 +388,9 @@ async def get_movie_details(
             genres=[g.tag for g in movie["Genre"]] if movie["Genre"] else [],
             actors=[a.tag for a in movie["Actor"]] if movie["Actor"] else [],
             studio=movie["studio"] or "",
-            directors=[d.tag for d in movie["Director"]
-                       ] if movie["Director"] else [],
-            writers=[w.tag for w in movie["Writer"]
-                     ] if movie["Writer"] else [],
-            duration_seconds=(movie["duration"] //
-                              1000) if movie["duration"] else 0,
+            directors=[d.tag for d in movie["Director"]] if movie["Director"] else [],
+            writers=[w.tag for w in movie["Writer"]] if movie["Writer"] else [],
+            duration_seconds=(movie["duration"] // 1000) if movie["duration"] else 0,
             content_rating=movie["contentRating"] if "contentRating" in movie else None,
             show_title=None,
             season=None,
@@ -407,8 +402,7 @@ async def get_movie_details(
     except NotFound:
         return f"ERROR: Movie with key {movie_key} not found."
     except Exception as e:
-        logger.exception(
-            "Failed to fetch movie details for key '%s'", movie_key)
+        logger.exception("Failed to fetch movie details for key '%s'", movie_key)
         return f"ERROR: Failed to fetch movie details. {str(e)}"
 
 
@@ -444,11 +438,9 @@ async def get_new_movies() -> str:
                 genres=[g.tag for g in m["Genre"]] if m["Genre"] else [],
                 actors=[a.tag for a in m["Actor"]] if m["Actor"] else [],
                 studio=m["studio"] or "",
-                directors=[d.tag for d in m["Director"]
-                           ] if m["Director"] else [],
+                directors=[d.tag for d in m["Director"]] if m["Director"] else [],
                 writers=[w.tag for w in m["Writer"]] if m["Writer"] else [],
-                duration_seconds=(
-                    m["duration"] // 1000) if m["duration"] else 0,
+                duration_seconds=(m["duration"] // 1000) if m["duration"] else 0,
                 content_rating=m["contentRating"] if "contentRating" in m else None,
                 show_title=None,
                 season=None,
@@ -505,8 +497,7 @@ async def search_shows(
         Field(
             description="Actor name to filter by",
             default=None,
-            examples=["Leonardo DiCaprio",
-                      "Arnold Schwarzenegger", "Harrison Ford"],
+            examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
         ),
     ] = None,
     content_rating: Annotated[
@@ -696,21 +687,15 @@ async def get_episode_details(
             title=episode["title"],
             summary=episode["summary"],
             year=int(episode["year"]) if episode["year"] else 0,
-            rating=float(episode["rating"]) *
-            10.0 if episode["rating"] else 0.0,
+            rating=float(episode["rating"]) * 10.0 if episode["rating"] else 0.0,
             watched=episode["isWatched"],
             type="episode",
-            genres=[g.tag for g in episode["Genre"]
-                    ] if episode["Genre"] else [],
-            actors=[a.tag for a in episode["Actor"]
-                    ] if episode["Actor"] else [],
+            genres=[g.tag for g in episode["Genre"]] if episode["Genre"] else [],
+            actors=[a.tag for a in episode["Actor"]] if episode["Actor"] else [],
             studio=episode["studio"] or "",
-            directors=[d.tag for d in episode["Director"]
-                       ] if episode["Director"] else [],
-            writers=[w.tag for w in episode["Writer"]
-                     ] if episode["Writer"] else [],
-            duration_seconds=(episode["duration"] //
-                              1000) if episode["duration"] else 0,
+            directors=[d.tag for d in episode["Director"]] if episode["Director"] else [],
+            writers=[w.tag for w in episode["Writer"]] if episode["Writer"] else [],
+            duration_seconds=(episode["duration"] // 1000) if episode["duration"] else 0,
             content_rating=episode["contentRating"] if "contentRating" in episode else None,
             show_title=episode["grandparentTitle"] if "grandparentTitle" in episode else None,
             season=(
@@ -718,8 +703,7 @@ async def get_episode_details(
                 if "parentTitle" in episode and episode["parentTitle"]
                 else None
             ),
-            episode=int(
-                episode["index"]) if "index" in episode and episode["index"] else None,
+            episode=int(episode["index"]) if "index" in episode and episode["index"] else None,
             air_date=None,
         )
         return format_episode(payload)
@@ -759,16 +743,13 @@ async def get_new_shows() -> str:
                 genres=[g.tag for g in e["Genre"]] if e["Genre"] else [],
                 actors=[a.tag for a in e["Actor"]] if e["Actor"] else [],
                 studio=e["studio"] or "",
-                directors=[d.tag for d in e["Director"]
-                           ] if e["Director"] else [],
+                directors=[d.tag for d in e["Director"]] if e["Director"] else [],
                 writers=[w.tag for w in e["Writer"]] if e["Writer"] else [],
-                duration_seconds=(
-                    e["duration"] // 1000) if e["duration"] else 0,
+                duration_seconds=(e["duration"] // 1000) if e["duration"] else 0,
                 content_rating=e["contentRating"] if "contentRating" in e else None,
                 show_title=e["grandparentTitle"] if "grandparentTitle" in e else None,
                 season=e["parentTitle"] if "parentTitle" in e and e["parentTitle"] else None,
-                episode=int(
-                    e["index"]) if "index" in e and e["index"] else None,
+                episode=int(e["index"]) if "index" in e and e["index"] else None,
                 air_date=None,
             )
             for e in episodes
@@ -817,8 +798,7 @@ async def get_active_clients(
 
         if not clients and not sessions:
             return "No active clients connected to your Plex server."
-        logger.info("Found %d active clients and %d sessions.",
-                    len(clients), len(sessions))
+        logger.info("Found %d active clients and %d sessions.", len(clients), len(sessions))
         results: List[str] = []
         for i, m in enumerate(clients):
             logger.info(f"Client {m.title} {m.protocolCapabilities}")
@@ -931,13 +911,11 @@ async def play_media_on_client(
             media_key = media[0].key if media else None
         if not media_key:
             return f"No media found with title {media_title}."
-        logger.info("Found client: %s with media key: %s",
-                    client.title, media_key)
+        logger.info("Found client: %s with media key: %s", client.title, media_key)
         media = await plex_api.get_media(media_key)
         if not media:
             return f"No media found with key {media_key}."
-        logger.info("Playing media: %s on client: %s",
-                    media.title, client.title)
+        logger.info("Playing media: %s on client: %s", media.title, client.title)
         await asyncio.to_thread(client.playMedia, media)
         return f"Playing {media.title} on {client.title}."  # type: ignore
     except Exception as e:
@@ -1025,14 +1003,12 @@ async def control_client_playback(
         return f"ERROR: Could not retrieve client. {str(e)}"
 
     if "playback" not in client.protocolCapabilities:
-        logger.info(
-            "Client '%s' does not support playback control.", client.title)
+        logger.info("Client '%s' does not support playback control.", client.title)
         return f"ERROR: Client '{client.title}' does not support playback control."
 
     try:
         command_enum = MediaCommand(command)
-        logger.info("Sending command '%s' to client '%s'.",
-                    command_enum, client.title)
+        logger.info("Sending command '%s' to client '%s'.", command_enum, client.title)
         if command_enum == MediaCommand.SEEK and seek_position is not None:
             client.seekTo(seek_position * 1000)
         if command_enum == MediaCommand.START_OVER:
@@ -1204,8 +1180,7 @@ async def set_client_subtitles(
             return f"Subtitles disabled on client '{client.title}'."
         if not isinstance(source, list):
             source = [source]
-        logger.info("Found %d media items in session on client '%s'.",
-                    len(source), client.title)
+        logger.info("Found %d media items in session on client '%s'.", len(source), client.title)
         if not source:
             return f"ERROR: No media items found for session on client '{client.title}'."
         for _, item in enumerate(source):
@@ -1228,12 +1203,10 @@ async def set_client_subtitles(
                         return f"Subtitles enabled on client '{client.title}'."
         return f"ERROR: No English subtitles found for current media on client '{client.title}'."
     except NotFound:
-        logger.info("Client with machine identifier '%s' not found.",
-                    machine_identifier)
+        logger.info("Client with machine identifier '%s' not found.", machine_identifier)
         return f"ERROR: Client with machine identifier '{machine_identifier}' not found."
     except Exception as e:
-        logger.exception(
-            "Failed to set subtitles on client '%s'.", machine_identifier)
+        logger.exception("Failed to set subtitles on client '%s'.", machine_identifier)
         return f"ERROR: Could not set subtitles on client. {str(e)}"
 
 
@@ -1319,8 +1292,7 @@ async def get_playlist_items(
     except NotFound:
         return f"ERROR: Playlist with key {playlist_key} not found."
     except Exception as e:
-        logger.exception(
-            "Failed to fetch items for playlist key '%s'", playlist_key)
+        logger.exception("Failed to fetch items for playlist key '%s'", playlist_key)
         return f"ERROR: Failed to fetch playlist items. {str(e)}"
 
 
@@ -1583,8 +1555,7 @@ async def get_movie_recommendations(
         Field(
             description="Actor name to filter by",
             default=None,
-            examples=["Leonardo DiCaprio",
-                      "Arnold Schwarzenegger", "Harrison Ford"],
+            examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
         ),
     ] = None,
     content_rating: Annotated[
@@ -1648,8 +1619,7 @@ async def get_movie_recommendations(
                 similar_movies = await get_plex_search().find_media(
                     PlexMediaQuery(type="movie", title=similar_to)
                 )
-                similar_movie = similar_movies[0].model_dump(
-                ) if similar_movies else None
+                similar_movie = similar_movies[0].model_dump() if similar_movies else None
             if not similar_movie:
                 return f"ERROR: Movie with key/title {similar_to} not found."
         if similar_movie:
@@ -1691,7 +1661,7 @@ async def get_movie_recommendations(
     # Validate the limit parameter
     # Default to 5 if limit is 0 or negative
     limit = max(1, limit) if limit else 5
-    for i, m in enumerate(movies[start_index: limit + start_index], start=1):
+    for i, m in enumerate(movies[start_index : limit + start_index], start=1):
         # results.append(f"Result #{i}: {m.title} ({m.year})\nKey: {m.ratingKey}\n")  # type: ignore
         # type: ignore
         results.append(f"Result #{i}:\nKey: {m.key}\n{format_movie(m)}")
@@ -1738,8 +1708,7 @@ async def get_show_recommendations(
         Field(
             description="Actor name to filter by",
             default=None,
-            examples=["Leonardo DiCaprio",
-                      "Arnold Schwarzenegger", "Harrison Ford"],
+            examples=["Leonardo DiCaprio", "Arnold Schwarzenegger", "Harrison Ford"],
         ),
     ] = None,
     content_rating: Annotated[
@@ -1844,8 +1813,7 @@ async def get_show_recommendations(
                     ),
                     limit=1,
                 )
-                similar_episode = similar_episodes[0].model_dump(
-                ) if similar_episodes else None
+                similar_episode = similar_episodes[0].model_dump() if similar_episodes else None
             if not similar_episode:
                 return f"ERROR: Episode with key/title {similar_to} not found."
         if similar_episode:
@@ -1903,7 +1871,7 @@ async def get_show_recommendations(
     # Validate the limit parameter
     # Default to 5 if limit is 0 or negative
     limit = max(1, limit) if limit else 5
-    for i, e in enumerate(episodes[start_index: limit + start_index], start=1):
+    for i, e in enumerate(episodes[start_index : limit + start_index], start=1):
         # type: ignore
         results.append(f"Result #{i}:\nKey: {e.key}\n{format_episode(e)}")
     return "\n".join(results)
@@ -1987,13 +1955,11 @@ async def on_run_server(args):
     plex_search = PlexTextSearch(
         plex_api,
         KnowledgeBase(
-            os.environ["MODEL_NAME"], os.environ["QDRANT_HOST"], int(
-                os.environ["QDRANT_PORT"])
+            os.environ["MODEL_NAME"], os.environ["QDRANT_HOST"], int(os.environ["QDRANT_PORT"])
         ),
     )
-    asyncio.create_task(plex_search.schedule_load_items())
-    logger.info("Connected to Plex server at %s",
-                os.environ["PLEX_SERVER_URL"])
+    # asyncio.create_task(plex_search.schedule_load_items())
+    logger.info("Connected to Plex server at %s", os.environ["PLEX_SERVER_URL"])
 
 
 def main():
