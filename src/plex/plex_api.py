@@ -561,7 +561,8 @@ class PlexTextSearch:
             season=item.get("parentIndex") if item.get(
                 "parentTitle") else None,
             episode=item.get("index") if item.get("index") else None,
-            air_date=date.fromisoformat(item.get("originallyAvailableAt")),
+            air_date=date.fromisoformat(
+                item.get("originallyAvailableAt")),  # type: ignore
             reviews=[
                 Review(
                     reviewer=item.get("tag"),
