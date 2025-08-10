@@ -488,7 +488,11 @@ class PlexTextSearch:
                 season=int(item.get("parentIndex")) if item.get(
                     "parentTitle") else None,
                 episode=int(item.get("index")) if item.get("index") else None,
-                air_date=date.fromisoformat(item.get("originallyAvailableAt")),
+                air_date=(
+                    date.fromisoformat(item.get("originallyAvailableAt"))
+                    if isinstance(item.get("originallyAvailableAt"), str)
+                    else item.get("originallyAvailableAt")
+                ),
             )
             items.append(plex_payload)
 
@@ -561,8 +565,11 @@ class PlexTextSearch:
             season=item.get("parentIndex") if item.get(
                 "parentTitle") else None,
             episode=item.get("index") if item.get("index") else None,
-            air_date=date.fromisoformat(
-                item.get("originallyAvailableAt")),  # type: ignore
+            air_date=(
+                date.fromisoformat(item.get("originallyAvailableAt"))
+                if isinstance(item.get("originallyAvailableAt"), str)
+                else item.get("originallyAvailableAt")
+            ),
             reviews=[
                 Review(
                     reviewer=item.get("tag"),

@@ -9,7 +9,6 @@ from typing import Union
 
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
-
 from pydantic import BaseModel, Field
 from qdrant_client.models import (
     Condition,
@@ -75,72 +74,70 @@ class Seed(BaseModel):
     title: Annotated[
         Optional[str],
         Field(
-            description="Title of the media to seed the query.",
-            default=None,
+            description="Exact title of a known movie, show, or episode to anchor the similarity search.",
             examples=["Alien: Romulus", "Inception"],
         ),
     ] = None
     key: Annotated[
         Optional[int],
         Field(
-            description="Unique Plex key for the media to seed the query.",
-            default=None,
+            description="Plex library key of a known media item to anchor the search.",
             examples=[12345, 67890],
         ),
     ] = None
     genres: Annotated[
         Optional[str],
         Field(
-            description="Comma separated list of genres to seed the query.",
-            default=None,
+            description="Comma-separated genres to use as an anchor (e.g., prefetch similar genre matches).",
             examples=["horror", "action, adventure"],
         ),
     ] = None
     summary: Annotated[
         Optional[str],
         Field(
-            description="Summary of the media to seed the query.",
-            default=None,
+            description="Brief plot or synopsis to use as an anchor for semantic similarity.",
             examples=["A thrilling sci-fi adventure.", "A mind-bending thriller."],
         ),
     ] = None
     series: Annotated[
         Optional[str],
         Field(
-            description="Title of the series to seed the query.",
-            default=None,
+            description="Title of a series to anchor the search to similar shows or episodes.",
             examples=["Alien", "Inception"],
         ),
     ] = None
     season: Annotated[
         Optional[int],
-        Field(description="Season number to seed the query.", default=None, examples=[1, 2]),
+        Field(
+            description="Season number to anchor the search within a series context.",
+            examples=[1, 2],
+        ),
     ] = None
     episode: Annotated[
         Optional[int],
-        Field(description="Episode number to seed the query.", default=None, examples=[1, 2]),
+        Field(
+            description="Episode number to anchor the search within a season context.",
+            examples=[1, 2],
+        ),
     ] = None
     directors: Annotated[
         Optional[str],
         Field(
-            description="Comma separated list of directors of the media to seed the query.",
-            default=None,
+            description="Comma-separated directors to anchor the search by creative style.",
             examples=["Ridley Scott", "Christopher Nolan, Lisa Joy"],
         ),
     ] = None
     writers: Annotated[
         Optional[str],
         Field(
-            description="Comma separated list of writers of the media to seed the query.",
-            default=None,
+            description="Comma-separated writers to anchor the search by writing style or story tone.",
             examples=["Dan O'Bannon", "Jonathan Nolan, Lisa Joy"],
         ),
     ] = None
     actors: Annotated[
         Optional[str],
         Field(
-            description="Comma separated list of actors of the media to seed the query.",
-            default=None,
+            description="Comma-separated actors to anchor the search by performance similarity or cast overlap.",
             examples=["Sigourney Weaver", "Leonardo DiCaprio, Tom Hardy"],
         ),
     ] = None
@@ -171,6 +168,9 @@ class SeriesStatus(StrEnum):
 
 
 class Filters(BaseModel):
+    similar: Annotated[Optional[str], Field(description="Title or key of media to seed query.")] = (
+        None,
+    )
     genres_any: Annotated[
         Optional[List[Annotated[str, Field(description="Genre to match")]]],
         Field(description="At least one genre must match."),
@@ -822,12 +822,12 @@ def find_media_tool(mcp: FastMCP) -> None:
                 ],
             ),
         ] = None,
-        query_seed: Annotated[
+        anchor_filter: Annotated[
             Seed,
             Field(
                 default=empty_seed,
                 title="Query Seed",
-                description="Anchors to guide the retrieval of media.",
+                description="One or more known media properties to use as a similarity anchor. The search engine will prefetch items most similar to these anchors, then apply the rest of your filters or query terms. Use this when you want to find “things like this” before narrowing results.",
                 json_schema_extra=Seed.model_json_schema(),
             ),
         ] = empty_seed,
@@ -868,7 +868,7 @@ def find_media_tool(mcp: FastMCP) -> None:
         # safety: Annotated[Optional[Safety], Field(
         #     description="Safety options for the search.")] = None,
     ) -> MediaSearchResponse:
-        if uncategorized_query is None and query_seed is None and filters is None:
+        if uncategorized_query is None and anchor_filter is None and filters is None:
             raise ValueError("At least one of query, seeds, or filters must be provided")
         collection = str(media_type)
         if collection not in ("movies", "episodes"):
@@ -879,29 +879,32 @@ def find_media_tool(mcp: FastMCP) -> None:
         prefetch: list[Prefetch] = []
         if any(
             [
-                query_seed.title,
-                query_seed.summary,
-                query_seed.series,
-                query_seed.season,
-                query_seed.episode,
-                query_seed.genres,
-                query_seed.directors,
-                query_seed.writers,
-                query_seed.actors,
+                anchor_filter.title,
+                anchor_filter.summary,
+                anchor_filter.series,
+                anchor_filter.season,
+                anchor_filter.episode,
+                anchor_filter.genres,
+                anchor_filter.directors,
+                anchor_filter.writers,
+                anchor_filter.actors,
+                filters.similar,
             ]
         ):
             positive_seeds = await filter_points(
                 collection,
                 PlexMediaQuery(
-                    title=query_seed.title,
-                    summary=query_seed.summary,
-                    show_title=query_seed.series,
-                    season=query_seed.season,
-                    episode=query_seed.episode if query_seed.episode is not None else None,
-                    genres=query_seed.genres.split(",") if query_seed.genres else None,
-                    directors=query_seed.directors.split(",") if query_seed.directors else None,
-                    writers=query_seed.writers.split(",") if query_seed.writers else None,
-                    actors=query_seed.actors.split(",") if query_seed.actors else None,
+                    title=anchor_filter.title or filters.similar,
+                    summary=anchor_filter.summary,
+                    show_title=anchor_filter.series,
+                    season=anchor_filter.season,
+                    episode=anchor_filter.episode if anchor_filter.episode is not None else None,
+                    genres=anchor_filter.genres.split(",") if anchor_filter.genres else None,
+                    directors=(
+                        anchor_filter.directors.split(",") if anchor_filter.directors else None
+                    ),
+                    writers=anchor_filter.writers.split(",") if anchor_filter.writers else None,
+                    actors=anchor_filter.actors.split(",") if anchor_filter.actors else None,
                 ),
             )
 
