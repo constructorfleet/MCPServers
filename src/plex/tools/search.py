@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import asyncio
-import itertools
 import logging
 from datetime import date
-from enum import Enum, StrEnum
+from enum import StrEnum
 from typing import Annotated, Any, List, Literal, Optional
 from typing import Type as ClassType
 from typing import Union
 
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+
 from pydantic import BaseModel, Field
 from qdrant_client.models import (
     Condition,
@@ -40,7 +39,7 @@ from plex.knowledge.utils import _word_count, explain_match, heuristic_rerank
 _LOGGER = logging.getLogger(__name__)
 
 
-class Scope(Enum):
+class Scope(StrEnum):
     MOVIE = "movies"
     # SERIES = "series"
     # SEASON = "season"
@@ -58,27 +57,14 @@ async def ScopeCollection(scope: Scope) -> Collection[PlexMediaPayload]:
     return collection
 
 
-class ResultMode(Enum):
+class ResultMode(StrEnum):
     AUTO = "auto"
     SERIES_ONLY = "series_only"
     EPISODES_ONLY = "episodes_only"
     MIXED = "mixed"
 
 
-class SeedType(Enum):
-    TITLE = "title"
-    KEY = "key"
-    GENRE = "genre"
-    SUMMARY = "summary"
-    SERIES = "series"
-    SEASON = "season"
-    EPISODE = "episode"
-    DIRECTOR = "director"
-    WRITER = "writer"
-    ACTOR = "actor"
-
-
-class AnyRole(Enum):
+class AnyRole(StrEnum):
     ANY = "any"
     ACTOR = "actor"
     DIRECTOR = "director"
@@ -86,11 +72,81 @@ class AnyRole(Enum):
 
 
 class Seed(BaseModel):
-    type: Annotated[
-        SeedType, Field(description="Seed entity type.",
-                        examples=["title", "key", "person"])
-    ]
-    value: Annotated[str, Field(description="Value of the seed entity.")]
+    title: Annotated[
+        Optional[str],
+        Field(
+            description="Title of the media to seed the query.",
+            default=None,
+            examples=["Alien: Romulus", "Inception"],
+        ),
+    ] = None
+    key: Annotated[
+        Optional[int],
+        Field(
+            description="Unique Plex key for the media to seed the query.",
+            default=None,
+            examples=[12345, 67890],
+        ),
+    ] = None
+    genres: Annotated[
+        Optional[str],
+        Field(
+            description="Comma separated list of genres to seed the query.",
+            default=None,
+            examples=["horror", "action, adventure"],
+        ),
+    ] = None
+    summary: Annotated[
+        Optional[str],
+        Field(
+            description="Summary of the media to seed the query.",
+            default=None,
+            examples=["A thrilling sci-fi adventure.",
+                      "A mind-bending thriller."],
+        ),
+    ] = None
+    series: Annotated[
+        Optional[str],
+        Field(
+            description="Title of the series to seed the query.",
+            default=None,
+            examples=["Alien", "Inception"],
+        ),
+    ] = None
+    season: Annotated[
+        Optional[int],
+        Field(description="Season number to seed the query.",
+              default=None, examples=[1, 2]),
+    ] = None
+    episode: Annotated[
+        Optional[int],
+        Field(description="Episode number to seed the query.",
+              default=None, examples=[1, 2]),
+    ] = None
+    directors: Annotated[
+        Optional[str],
+        Field(
+            description="Comma separated list of directors of the media to seed the query.",
+            default=None,
+            examples=["Ridley Scott", "Christopher Nolan, Lisa Joy"],
+        ),
+    ] = None
+    writers: Annotated[
+        Optional[str],
+        Field(
+            description="Comma separated list of writers of the media to seed the query.",
+            default=None,
+            examples=["Dan O'Bannon", "Jonathan Nolan, Lisa Joy"],
+        ),
+    ] = None
+    actors: Annotated[
+        Optional[str],
+        Field(
+            description="Comma separated list of actors of the media to seed the query.",
+            default=None,
+            examples=["Sigourney Weaver", "Leonardo DiCaprio, Tom Hardy"],
+        ),
+    ] = None
 
 
 class Intent(StrEnum):
@@ -105,13 +161,13 @@ class Intent(StrEnum):
     CONTINUE_WATCHING_LIKE = "continue_watching_like"
 
 
-class Role(Enum):
+class Role(StrEnum):
     ACTOR = "actor"
     DIRECTOR = "director"
     WRITER = "writer"
 
 
-class SeriesStatus(Enum):
+class SeriesStatus(StrEnum):
     ANY = "any"
     ONGOING = "ongoing"
     ENDED = "ended"
@@ -119,34 +175,44 @@ class SeriesStatus(Enum):
 
 class Filters(BaseModel):
     genres_any: Annotated[
-        Optional[List[str]], Field(
-            description="At least one genre must match.")
+        Optional[List[Annotated[str, Field(description="Genre to match")]]],
+        Field(description="At least one genre must match."),
     ] = None
-    genres_all: Annotated[Optional[List[str]], Field(
-        description="All genres must match.")] = None
+    genres_all: Annotated[
+        Optional[List[Annotated[str, Field(description="Genre to match")]]],
+        Field(description="All genres must match."),
+    ] = None
     actors_any: Annotated[
-        Optional[List[str]], Field(
-            description="At least one actor must match.")
+        Optional[List[Annotated[str, Field(description="Actor to match")]]],
+        Field(description="At least one actor must match."),
     ] = None
     directors_any: Annotated[
-        Optional[List[str]], Field(
-            description="At least one director must match.")
+        Optional[List[Annotated[str, Field(description="Director to match")]]],
+        Field(description="At least one director must match."),
     ] = None
     writers_any: Annotated[
-        Optional[List[str]], Field(
-            description="At least one writer must match.")
+        Optional[List[Annotated[str, Field(description="Writer to match")]]],
+        Field(description="At least one writer must match."),
     ] = None
-    actors_all: Annotated[Optional[List[str]], Field(
-        description="All actors must match.")] = None
+    actors_all: Annotated[
+        Optional[List[Annotated[str, Field(description="Actor to match")]]],
+        Field(description="All actors must match."),
+    ] = None
     directors_all: Annotated[
-        Optional[List[str]], Field(description="All directors must match.")
+        Optional[List[Annotated[str, Field(description="Director to match")]]],
+        Field(description="All directors must match."),
     ] = None
-    writers_all: Annotated[Optional[List[str]], Field(
-        description="All writers must match.")] = None
-    air_date_range: Annotated[
-        Optional[List[date]],
-        Field(description="Filter media by air date by range",
-              max_length=2, min_length=2),
+    writers_all: Annotated[
+        Optional[List[Annotated[str, Field(description="Writer to match")]]],
+        Field(description="All writers must match."),
+    ] = None
+    air_date_range_min: Annotated[
+        Optional[date],
+        Field(description="Minimum air date"),
+    ] = None
+    air_date_range_max: Annotated[
+        Optional[date],
+        Field(description="Maximum air date"),
     ] = None
     runtime_range_min: Annotated[
         Optional[int], Field(description="Minimum runtime in minutes.")
@@ -155,19 +221,26 @@ class Filters(BaseModel):
         Optional[int], Field(description="Maximum runtime in minutes.")
     ] = None
     content_rating_any: Annotated[
-        Optional[List[str]], Field(description="Content ratings to include.")
+        Optional[List[Annotated[str, Field(
+            description="Content rating to include.")]]],
+        Field(description="Content ratings to include."),
     ] = None
-    exclude_titles: Annotated[Optional[List[str]],
-                              Field(description="Titles to exclude.")] = None
-    season_range: Annotated[
-        Optional[List[int]],
-        Field(description="Filter media by season number by range",
-              max_length=2, min_length=2),
+    exclude_titles: Annotated[
+        Optional[List[Annotated[str, Field(
+            description="Titles to exclude.")]]],
+        Field(description="Titles to exclude."),
     ] = None
-    episode_range: Annotated[
-        Optional[List[int]],
-        Field(description="Filter media by episode number by range",
-              max_length=2, min_length=2),
+    season_range_min: Annotated[Optional[int], Field(
+        description="Minimum season number.")] = None
+    season_range_max: Annotated[Optional[int], Field(
+        description="Maximum season number.")] = None
+    episode_range_min: Annotated[
+        Optional[int],
+        Field(description="Minimum episode number."),
+    ] = None
+    episode_range_max: Annotated[
+        Optional[int],
+        Field(description="Maximum episode number."),
     ] = None
 
 
@@ -181,7 +254,7 @@ class EpisodeFocus(BaseModel):
     episode_title: Annotated[Optional[str], Field(
         description="Title of the episode.")] = None
     arc_keywords: Annotated[
-        Optional[List[str]],
+        Optional[List[Annotated[str, Field(description="Story arc")]]],
         Field(
             description="Filter episodes by story arc",
             examples=["bottle episode", "anthology", "heist", "time loop"],
@@ -189,17 +262,21 @@ class EpisodeFocus(BaseModel):
     ] = None
 
 
-class Pacing(Enum):
+class Pacing(StrEnum):
     SLOW = "slow"
     MEDIUM = "medium"
     FAST = "fast"
 
 
 class Vibes(BaseModel):
-    tone: Annotated[Optional[List[str]], Field(
-        description="Filter media by tone.")] = None
-    themes: Annotated[Optional[List[str]], Field(
-        description="Filter media by themes.")] = None
+    tone: Annotated[
+        Optional[List[Annotated[str, Field(description="Tone to match")]]],
+        Field(description="Filter media by tone."),
+    ] = None
+    themes: Annotated[
+        Optional[List[Annotated[str, Field(description="Theme to match")]]],
+        Field(description="Filter media by themes."),
+    ] = None
     pacing: Annotated[Optional[Pacing], Field(
         description="Filter media by pacing.")] = None
     scariness: Annotated[
@@ -253,7 +330,7 @@ class Ranking(BaseModel):
     ] = 1.0
 
 
-class IncludeEnum(Enum):
+class IncludeEnum(StrEnum):
     SYNOPSIS = "synopsis"
     SUMMARY = "summary"
     CAST = "cast"
@@ -374,10 +451,12 @@ class Diagnostics(BaseModel):
 class MediaSearchResponse(BaseModel):
     results: Annotated[List[MediaResult], Field(
         description="List of media search results")]
-    total: Annotated[int, Field(description="Total number of results found")]
+    total: Annotated[int, Field(
+        description="Total number of results found", ge=0)]
     used_intent: Annotated[str, Field(
         description="Intent used for the search")]
-    used_scope: Annotated[str, Field(description="Scope used for the search")]
+    used_scope: Annotated[Scope | str, Field(
+        description="Scope used for the search")]
     diagnostics: Annotated[
         Diagnostics, Field(
             description="Diagnostics information about the search")
@@ -674,9 +753,9 @@ async def search_as_tool(
 
 
 async def filter_points(
-    scope: Scope,
+    scope: MediaType,
     filters: PlexMediaQuery,
-) -> list[DataPoint]:
+) -> list[DataPoint[PlexMediaPayload]]:
     """Filter data points based on the provided filters.
 
     Args:
@@ -725,7 +804,7 @@ async def filter_points(
         musts.append(FieldCondition(key="show_title",
                      match=MatchPhrase(phrase=filters.show_title)))
     result = await KnowledgeBase.instance().qdrant_client.query_points(
-        collection_name=scope.value, query_filter=Filter(must=musts), limit=10000
+        collection_name=scope, query_filter=Filter(must=musts), limit=10000
     )
     return [
         DataPoint(payload_class=PlexMediaPayload,
@@ -782,116 +861,78 @@ async def query_as_tool(
     )
 
 
-find_media_tool_response_schema = {
-    "type": "object",
-    "properties": {
-        "results": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "result_type": {"type": "string", "enum": ["episode", "movie"]},
-                    "key": {"type": "integer"},
-                    "series": {"type": "string"},
-                    "title": {"type": "string"},
-                    "season": {"type": "integer"},
-                    "episode": {"type": "integer"},
-                    "year": {"type": "integer"},
-                    "status": {"type": "string"},
-                    "genres": {"type": "array", "items": {"type": "string"}},
-                    "synopsis": {"type": "string"},
-                    "summary": {"type": "string"},
-                    "rating": {"type": "number"},
-                    "directors": {"type": "array", "items": {"type": "string"}},
-                    "writers": {"type": "array", "items": {"type": "string"}},
-                    "actors": {"type": "array", "items": {"type": "string"}},
-                    "content_rating": {"type": "string"},
-                    "runtime_seconds": {"type": "integer"},
-                    "tagline": {"type": "string"},
-                    "why": {"type": "string"},
-                },
-                "required": ["result_type", "key", "title"],
-            },
-        },
-        "total": {"type": "integer"},
-        "used_intent": {"type": "string"},
-        "used_scope": {"type": "string"},
-        "diagnostics": {
-            "type": "object",
-            "properties": {
-                "retrieval": {
-                    "type": "object",
-                    "properties": {
-                        "dense_weight": {"type": "number"},
-                        "sparse_weight": {"type": "number"},
-                    },
-                    "required": ["dense_weight", "sparse_weight"],
-                },
-                "reranker": {"type": "string"},
-                "filters_applied": {"type": "boolean"},
-                "fallback_used": {"type": "boolean"},
-            },
-            "required": ["retrieval", "filters_applied", "fallback_used"],
-        },
-    },
-    "required": ["results", "total", "used_intent", "used_scope", "diagnostics"],
-}
+empty_seed = Seed()
+empty_filters = Filters()
+empty_pagination = Pagination()
 
 
 def find_media_tool(mcp: FastMCP) -> None:
     @mcp.tool(
         name="find_media",
         description="Retrieve/recommend films and TV (series, seasons, episodes) by similarity, cast/crew, genres, keywords, or vague plot clues.",
-        output_schema=find_media_tool_response_schema,
+        # output_schema=MediaSearchResponse.model_json_schema(),
         annotations=ToolAnnotations(title="Search or Recommend Media"),
         tags={"plex", "media", "search", "recommend"},
     )
     async def tool(
-        scope: Annotated[
-            Scope,
+        media_type: Annotated[
+            MediaType,
             Field(
-                description="Granularity to target.",
+                title="Media Type",
+                description="The type of media to query.",
                 examples=["movies", "episodes"],
             ),
         ],
         uncategorized_query: Annotated[
             Optional[str],
             Field(
+                default=None,
+                title="Uncategorized Query",
                 description="Natural language request for vague prompts.",
                 examples=[
                     "What's that episode where a journalist, an artist, a musician are invited to a billionaire's house and there's a meteor at the end?"
                 ],
             ),
         ] = None,
-        query_seeds: Annotated[
-            Optional[List[Seed]], Field(
-                description="Anchors to guide the retrieval of media.")
-        ] = None,
+        query_seed: Annotated[
+            Seed,
+            Field(
+                default=empty_seed,
+                title="Query Seed",
+                description="Anchors to guide the retrieval of media.",
+                json_schema_extra=Seed.model_json_schema(),
+            ),
+        ] = empty_seed,
         filters: Annotated[
-            Optional[Filters], Field(
-                description="Filters to apply to the search.")
-        ] = None,
-        episode_focus: Annotated[
-            Optional[EpisodeFocus], Field(
-                description="Episode-specific targeting for TV.")
-        ] = None,
-        vibes: Annotated[Optional[Vibes], Field(
-            description="Vibes to guide the search.")] = None,
-        hybrid: Annotated[Optional[Hybrid], Field(
-            description="Hybrid search options.")] = None,
-        rerank: Annotated[Optional[Rerank], Field(
-            description="Reranking options.")] = None,
-        diversity: Annotated[
-            Optional[Diversity], Field(
-                description="Options to diversify the results.")
-        ] = None,
-        ranking: Annotated[
-            Optional[Ranking], Field(
-                description="Options to rerank the results.")
-        ] = None,
+            Filters,
+            Field(
+                default=empty_filters,
+                title="Filters",
+                description="Filters to apply to the search.",
+                json_schema_extra=Filters.model_json_schema(),
+            ),
+        ] = empty_filters,
         pagination: Annotated[
-            Optional[Pagination], Field(description="Pagination options.")
-        ] = None,
+            Pagination,
+            Field(
+                default=empty_pagination,
+                title="Pagination",
+                description="Pagination options.",
+                json_schema_extra=Pagination.model_json_schema(),
+            ),
+        ] = empty_pagination,
+        # episode_focus: Annotated[
+        #     Optional[EpisodeFocus], Field(description="Episode-specific targeting for TV.")
+        # ] = None,
+        # vibes: Annotated[Optional[Vibes], Field(description="Vibes to guide the search.")] = None,
+        # hybrid: Annotated[Optional[Hybrid], Field(description="Hybrid search options.")] = None,
+        # rerank: Annotated[Optional[Rerank], Field(description="Reranking options.")] = None,
+        # diversity: Annotated[
+        #     Optional[Diversity], Field(description="Options to diversify the results.")
+        # ] = None,
+        # ranking: Annotated[
+        #     Optional[Ranking], Field(description="Options to rerank the results.")
+        # ] = None,
         # include: Annotated[
         #     Optional[List[IncludeEnum]],
         #     Field(description="Specify the content to include in the search results."),
@@ -899,182 +940,188 @@ def find_media_tool(mcp: FastMCP) -> None:
         # safety: Annotated[Optional[Safety], Field(
         #     description="Safety options for the search.")] = None,
     ) -> MediaSearchResponse:
-        if (
-            uncategorized_query is None
-            and (not query_seeds or len(query_seeds) == 0)
-            and filters is None
-        ):
+        if uncategorized_query is None and query_seed is None and filters is None:
             raise ValueError(
                 "At least one of query, seeds, or filters must be provided")
         prefetch: list[Prefetch] = []
-        if query_seeds:
-            positive_seeds = await asyncio.gather(
-                *[
-                    filter_points(
-                        scope,
-                        PlexMediaQuery(
-                            title=s.value if s.type == SeedType.TITLE else None,
-                            summary=s.value if s.type == SeedType.SUMMARY else None,
-                            show_title=s.value if s.type == SeedType.SERIES else None,
-                            season=(
-                                int(s.value)
-                                if s.type == SeedType.SEASON and s.value.isdigit()
-                                else None
-                            ),
-                            episode=(
-                                int(s.value)
-                                if s.type == SeedType.EPISODE and s.value.isdigit()
-                                else None
-                            ),
-                            genres=[
-                                s.value] if s.type == SeedType.GENRE else None,
-                            directors=[
-                                s.value] if s.type == SeedType.DIRECTOR else None,
-                            writers=[
-                                s.value] if s.type == SeedType.WRITER else None,
-                            actors=[
-                                s.value] if s.type == SeedType.ACTOR else None,
-                        ),
-                    )
-                    for s in query_seeds
-                ]
+        if any(
+            [
+                query_seed.title,
+                query_seed.summary,
+                query_seed.series,
+                query_seed.season,
+                query_seed.episode,
+                query_seed.genres,
+                query_seed.directors,
+                query_seed.writers,
+                query_seed.actors,
+            ]
+        ):
+            positive_seeds = await filter_points(
+                media_type,
+                PlexMediaQuery(
+                    title=query_seed.title,
+                    summary=query_seed.summary,
+                    show_title=query_seed.series,
+                    season=query_seed.season,
+                    episode=query_seed.episode if query_seed.episode is not None else None,
+                    genres=query_seed.genres.split(
+                        ",") if query_seed.genres else None,
+                    directors=query_seed.directors.split(
+                        ",") if query_seed.directors else None,
+                    writers=query_seed.writers.split(
+                        ",") if query_seed.writers else None,
+                    actors=query_seed.actors.split(
+                        ",") if query_seed.actors else None,
+                ),
             )
+
             prefetch.append(
                 Prefetch(
                     query=RecommendQuery(
                         recommend=RecommendInput(
-                            positive=[
-                                x.id for x in itertools.chain.from_iterable(positive_seeds)]
-                        )
+                            positive=[seed.id for seed in positive_seeds])
                     )
                 )
             )
         musts: list[Condition] = []
         must_nots: list[Condition] = []
         shoulds: list[Condition] = []
-        if filters is not None:
-            if filters.genres_all:
-                musts.extend(
-                    [
-                        FieldCondition(
-                            key="genres", match=MatchValue(value=genre))
-                        for genre in filters.genres_all
-                    ]
-                )
-            if filters.genres_any:
-                shoulds.extend(
-                    [
-                        FieldCondition(
-                            key="air_date", match=MatchValue(value=genre))
-                        for genre in filters.genres_any
-                    ]
-                )
-            if filters.air_date_range:
-                musts.append(
+        if filters.genres_all:
+            musts.extend(
+                [
+                    FieldCondition(key="genres", match=MatchValue(value=genre))
+                    for genre in filters.genres_all
+                ]
+            )
+        if filters.genres_any:
+            shoulds.extend(
+                [
                     FieldCondition(
-                        key="air_date",
-                        range=DatetimeRange(
-                            gte=filters.air_date_range[0], lte=filters.air_date_range[1]
-                        ),
-                    )
+                        key="air_date", match=MatchValue(value=genre))
+                    for genre in filters.genres_any
+                ]
+            )
+        if filters.air_date_range_min:
+            musts.append(
+                FieldCondition(
+                    key="air_date",
+                    range=DatetimeRange(gte=filters.air_date_range_min),
                 )
-            if filters.season_range:
-                musts.append(
+            )
+        if filters.air_date_range_max:
+            musts.append(
+                FieldCondition(
+                    key="air_date",
+                    range=DatetimeRange(lte=filters.air_date_range_max),
+                )
+            )
+        if filters.season_range_min:
+            musts.append(
+                FieldCondition(
+                    key="season",
+                    range=Range(gte=filters.season_range_min),
+                )
+            )
+        if filters.season_range_max:
+            musts.append(
+                FieldCondition(
+                    key="season",
+                    range=Range(lte=filters.season_range_max),
+                )
+            )
+        if filters.episode_range_min:
+            musts.append(
+                FieldCondition(
+                    key="episode",
+                    range=Range(gte=filters.episode_range_min),
+                )
+            )
+        if filters.episode_range_max:
+            musts.append(
+                FieldCondition(
+                    key="episode",
+                    range=Range(lte=filters.episode_range_max),
+                )
+            )
+        if filters.exclude_titles:
+            must_nots.extend(
+                [
+                    FieldCondition(key="title", match=MatchValue(value=title))
+                    for title in filters.exclude_titles
+                ]
+            )
+        if filters.content_rating_any:
+            shoulds.extend(
+                [
+                    FieldCondition(key="content_rating",
+                                   match=MatchValue(value=rating))
+                    for rating in filters.content_rating_any
+                ]
+            )
+        if filters.runtime_range_min:
+            musts.append(
+                FieldCondition(
+                    key="runtime",
+                    range=Range(gte=filters.runtime_range_min),
+                )
+            )
+        if filters.runtime_range_max:
+            musts.append(
+                FieldCondition(
+                    key="runtime",
+                    range=Range(lte=filters.runtime_range_max),
+                )
+            )
+        if filters.directors_all:
+            musts.extend(
+                [
+                    FieldCondition(key="directors",
+                                   match=MatchValue(value=director))
+                    for director in filters.directors_all
+                ]
+            )
+        if filters.directors_any:
+            shoulds.extend(
+                [
+                    FieldCondition(key="directors",
+                                   match=MatchValue(value=director))
+                    for director in filters.directors_any
+                ]
+            )
+        if filters.actors_all:
+            musts.extend(
+                [
+                    FieldCondition(key="actors", match=MatchValue(value=actor))
+                    for actor in filters.actors_all
+                ]
+            )
+        if filters.actors_any:
+            shoulds.extend(
+                [
+                    FieldCondition(key="actors", match=MatchValue(value=actor))
+                    for actor in filters.actors_any
+                ]
+            )
+        if filters.writers_all:
+            musts.extend(
+                [
                     FieldCondition(
-                        key="season",
-                        range=Range(
-                            gte=filters.season_range[0], lte=filters.season_range[1]),
-                    )
-                )
-            if filters.episode_range:
-                musts.append(
+                        key="writers", match=MatchValue(value=writer))
+                    for writer in filters.writers_all
+                ]
+            )
+        if filters.writers_any:
+            shoulds.extend(
+                [
                     FieldCondition(
-                        key="episode",
-                        range=Range(
-                            gte=filters.episode_range[0], lte=filters.episode_range[1]),
-                    )
-                )
-            if filters.exclude_titles:
-                must_nots.extend(
-                    [
-                        FieldCondition(
-                            key="title", match=MatchValue(value=title))
-                        for title in filters.exclude_titles
-                    ]
-                )
-            if filters.content_rating_any:
-                shoulds.extend(
-                    [
-                        FieldCondition(key="content_rating",
-                                       match=MatchValue(value=rating))
-                        for rating in filters.content_rating_any
-                    ]
-                )
-            if filters.runtime_range_min:
-                musts.append(
-                    FieldCondition(
-                        key="runtime",
-                        range=Range(gte=filters.runtime_range_min),
-                    )
-                )
-            if filters.runtime_range_max:
-                musts.append(
-                    FieldCondition(
-                        key="runtime",
-                        range=Range(lte=filters.runtime_range_max),
-                    )
-                )
-            if filters.directors_all:
-                musts.extend(
-                    [
-                        FieldCondition(key="directors",
-                                       match=MatchValue(value=director))
-                        for director in filters.directors_all
-                    ]
-                )
-            if filters.directors_any:
-                shoulds.extend(
-                    [
-                        FieldCondition(key="directors",
-                                       match=MatchValue(value=director))
-                        for director in filters.directors_any
-                    ]
-                )
-            if filters.actors_all:
-                musts.extend(
-                    [
-                        FieldCondition(
-                            key="actors", match=MatchValue(value=actor))
-                        for actor in filters.actors_all
-                    ]
-                )
-            if filters.actors_any:
-                shoulds.extend(
-                    [
-                        FieldCondition(
-                            key="actors", match=MatchValue(value=actor))
-                        for actor in filters.actors_any
-                    ]
-                )
-            if filters.writers_all:
-                musts.extend(
-                    [
-                        FieldCondition(
-                            key="writers", match=MatchValue(value=writer))
-                        for writer in filters.writers_all
-                    ]
-                )
-            if filters.writers_any:
-                shoulds.extend(
-                    [
-                        FieldCondition(
-                            key="writers", match=MatchValue(value=writer))
-                        for writer in filters.writers_any
-                    ]
-                )
+                        key="writers", match=MatchValue(value=writer))
+                    for writer in filters.writers_any
+                ]
+            )
 
         results = await KnowledgeBase.instance().qdrant_client.query_points(
-            collection_name=scope.value,
+            collection_name=media_type,
             prefetch=prefetch,
             query=uncategorized_query,
             query_filter=Filter(must=musts, should=shoulds),
@@ -1088,12 +1135,12 @@ def find_media_tool(mcp: FastMCP) -> None:
             results=[
                 point_to_media_result(PlexMediaPayload, point)
                 for point in results.points[
-                    : pagination.limit if pagination and pagination.limit else 10
+                    : (pagination.limit if pagination.limit else None) or 10
                 ]
             ],
             total=len(results.points),
             used_intent="auto",
-            used_scope=scope.value,
+            used_scope=media_type,
             diagnostics=Diagnostics(
                 retrieval=Retrieval(dense_weight=1.0, sparse_weight=0.0),
                 reranker=None,
