@@ -116,8 +116,7 @@ class Seed(BaseModel):
                 "Brief plot or synopsis to anchor the similarity search. "
                 "Retrieves media with similar summaries before applying other filters."
             ),
-            examples=["A thrilling sci-fi adventure.",
-                      "A mind-bending thriller."],
+            examples=["A thrilling sci-fi adventure.", "A mind-bending thriller."],
         ),
     ] = None
 
@@ -134,8 +133,7 @@ class Seed(BaseModel):
     season: Annotated[
         Optional[int],
         Field(
-            description=(
-                "Season number to anchor the similarity search within a series context."),
+            description=("Season number to anchor the similarity search within a series context."),
             examples=[1, 2],
         ),
     ] = None
@@ -207,8 +205,7 @@ class SeriesStatus(StrEnum):
 
 class Filters(BaseModel):
     similar: Annotated[
-        Optional[str], Field(
-            description="Title or key of similar media to anchor the query.")
+        Optional[str], Field(description="Title or key of similar media to anchor the query.")
     ] = None
     genres_any: Annotated[
         Optional[List[Annotated[str, Field(description="Genre to match")]]],
@@ -257,21 +254,16 @@ class Filters(BaseModel):
         Optional[int], Field(description="Maximum runtime in minutes.")
     ] = None
     content_rating_any: Annotated[
-        Optional[List[Annotated[str, Field(
-            description="Content rating to include.")]]],
+        Optional[List[Annotated[str, Field(description="Content rating to include.")]]],
         Field(description="Content ratings to include."),
     ] = None
     exclude_titles: Annotated[
-        Optional[List[Annotated[str, Field(
-            description="Titles to exclude.")]]],
+        Optional[List[Annotated[str, Field(description="Titles to exclude.")]]],
         Field(description="Titles to exclude."),
     ] = None
-    season_range_min: Annotated[Optional[int], Field(
-        description="Minimum season number.")] = None
-    season_range_max: Annotated[Optional[int], Field(
-        description="Maximum season number.")] = None
-    season: Annotated[Optional[int], Field(
-        description="Exact season number.")] = None
+    season_range_min: Annotated[Optional[int], Field(description="Minimum season number.")] = None
+    season_range_max: Annotated[Optional[int], Field(description="Maximum season number.")] = None
+    season: Annotated[Optional[int], Field(description="Exact season number.")] = None
     episode_range_min: Annotated[
         Optional[int],
         Field(description="Minimum episode number."),
@@ -280,25 +272,17 @@ class Filters(BaseModel):
         Optional[int],
         Field(description="Maximum episode number."),
     ] = None
-    episode: Annotated[Optional[int], Field(
-        description="Exact episode number.")] = None
-    year_range_min: Annotated[Optional[int], Field(
-        description="Minimum release year.")] = None
-    year_range_max: Annotated[Optional[int], Field(
-        description="Maximum release year.")] = None
-    year: Annotated[Optional[int], Field(
-        description="Exact release year.")] = None
+    episode: Annotated[Optional[int], Field(description="Exact episode number.")] = None
+    year_range_min: Annotated[Optional[int], Field(description="Minimum release year.")] = None
+    year_range_max: Annotated[Optional[int], Field(description="Maximum release year.")] = None
+    year: Annotated[Optional[int], Field(description="Exact release year.")] = None
 
 
 class EpisodeFocus(BaseModel):
-    series_title: Annotated[Optional[str], Field(
-        description="Title of the series.")] = None
-    season: Annotated[Optional[int], Field(
-        description="Season number.")] = None
-    episode: Annotated[Optional[int], Field(
-        description="Episode number.")] = None
-    episode_title: Annotated[Optional[str], Field(
-        description="Title of the episode.")] = None
+    series_title: Annotated[Optional[str], Field(description="Title of the series.")] = None
+    season: Annotated[Optional[int], Field(description="Season number.")] = None
+    episode: Annotated[Optional[int], Field(description="Episode number.")] = None
+    episode_title: Annotated[Optional[str], Field(description="Title of the episode.")] = None
     arc_keywords: Annotated[
         Optional[List[Annotated[str, Field(description="Story arc")]]],
         Field(
@@ -323,28 +307,23 @@ class Vibes(BaseModel):
         Optional[List[Annotated[str, Field(description="Theme to match")]]],
         Field(description="Filter media by themes."),
     ] = None
-    pacing: Annotated[Optional[Pacing], Field(
-        description="Filter media by pacing.")] = None
+    pacing: Annotated[Optional[Pacing], Field(description="Filter media by pacing.")] = None
     scariness: Annotated[
-        Optional[int], Field(
-            ge=1, le=10, description="Filter media by scariness level (1-10).")
+        Optional[int], Field(ge=1, le=10, description="Filter media by scariness level (1-10).")
     ] = None
 
 
 class Hybrid(BaseModel):
     dense_weight: Annotated[
-        Optional[float], Field(
-            description="Weight for dense representations", ge=0.0, le=1.0)
+        Optional[float], Field(description="Weight for dense representations", ge=0.0, le=1.0)
     ] = 0.7
     sparse_weight: Annotated[
-        Optional[float], Field(
-            description="Weight for sparse representations", ge=0.0, le=1.0)
+        Optional[float], Field(description="Weight for sparse representations", ge=0.0, le=1.0)
     ] = 0.3
 
 
 class Rerank(BaseModel):
-    model: Annotated[Optional[str], Field(
-        description="Model to use for reranking.")] = None
+    model: Annotated[Optional[str], Field(description="Model to use for reranking.")] = None
     explain: Annotated[Optional[bool], Field(description="Whether to explain the reranking.")] = (
         True
     )
@@ -353,26 +332,20 @@ class Rerank(BaseModel):
 class Diversity(BaseModel):
     mmr_lambda: Annotated[
         Optional[float],
-        Field(description="Weight for maximum marginal relevance (MMR)",
-              ge=0.0, le=1.0),
+        Field(description="Weight for maximum marginal relevance (MMR)", ge=0.0, le=1.0),
     ] = 0.3
-    max_per_person: Annotated[Optional[int], Field(
-        description="Maximum results per person.")] = 2
-    max_per_series: Annotated[Optional[int], Field(
-        description="Maximum results per series.")] = 2
+    max_per_person: Annotated[Optional[int], Field(description="Maximum results per person.")] = 2
+    max_per_series: Annotated[Optional[int], Field(description="Maximum results per series.")] = 2
 
 
 class Ranking(BaseModel):
-    popularity_boost: Annotated[Optional[float], Field(
-        description="Boost for popular items")] = 0.2
-    recency_boost: Annotated[Optional[float], Field(
-        description="Boost for recent items")] = 0.1
+    popularity_boost: Annotated[Optional[float], Field(description="Boost for popular items")] = 0.2
+    recency_boost: Annotated[Optional[float], Field(description="Boost for recent items")] = 0.1
     critic_score_boost: Annotated[
         Optional[float], Field(description="Boost for high critic scores")
     ] = 0.0
     episode_weight: Annotated[
-        Optional[float], Field(
-            description="Bias toward episode-level matches when mixed")
+        Optional[float], Field(description="Bias toward episode-level matches when mixed")
     ] = 1.0
 
 
@@ -396,16 +369,13 @@ class IncludeEnum(StrEnum):
 
 class Safety(BaseModel):
     avoid_spoilers: Annotated[
-        Optional[bool], Field(
-            default=True, description="Whether to avoid spoilers")
+        Optional[bool], Field(default=True, description="Whether to avoid spoilers")
     ] = True
     content_warnings_any: Annotated[
-        Optional[List[str]], Field(
-            description="List of content warnings to consider")
+        Optional[List[str]], Field(description="List of content warnings to consider")
     ] = None
     exclude_content_warnings: Annotated[
-        Optional[List[str]], Field(
-            description="List of content warnings to exclude")
+        Optional[List[str]], Field(description="List of content warnings to exclude")
     ] = None
 
 
@@ -416,14 +386,10 @@ class SimilarMedia(BaseModel):
 
 
 class MediaResult(BaseModel):
-    result_type: Annotated[MediaType, Field(
-        description="Type of media result")]
-    key: Annotated[int, Field(
-        description="Unique Plex key for this media result")]
-    series: Annotated[Optional[str], Field(
-        description="Series or collection title, if applicable")]
-    title: Annotated[str, Field(
-        description="Primary title of the media result")]
+    result_type: Annotated[MediaType, Field(description="Type of media result")]
+    key: Annotated[int, Field(description="Unique Plex key for this media result")]
+    series: Annotated[Optional[str], Field(description="Series or collection title, if applicable")]
+    title: Annotated[str, Field(description="Primary title of the media result")]
     season: Annotated[Optional[int], Field(description="Season number, if type is 'episode'")] = (
         None
     )
@@ -431,93 +397,71 @@ class MediaResult(BaseModel):
         None
     )
     year: Annotated[Optional[int], Field(description="Release year")] = None
-    status: Annotated[Optional[str], Field(
-        description="Status of the media result")] = None
+    status: Annotated[Optional[str], Field(description="Status of the media result")] = None
     genres: Annotated[
-        Optional[List[str]], Field(
-            description="List of genres associated with this media result")
+        Optional[List[str]], Field(description="List of genres associated with this media result")
     ] = None
-    synopsis: Annotated[Optional[str], Field(
-        description="Synopsis of the media result")] = None
-    summary: Annotated[Optional[str], Field(
-        description="Summary of the media result")] = None
-    rating: Annotated[Optional[Any], Field(
-        description="Rating of the media result")] = None
+    synopsis: Annotated[Optional[str], Field(description="Synopsis of the media result")] = None
+    summary: Annotated[Optional[str], Field(description="Summary of the media result")] = None
+    rating: Annotated[Optional[Any], Field(description="Rating of the media result")] = None
     directors: Annotated[
-        Optional[List[str]], Field(
-            description="List of directors associated with the media result")
+        Optional[List[str]], Field(description="List of directors associated with the media result")
     ] = None
     writers: Annotated[
-        Optional[List[str]], Field(
-            description="List of writers associated with the media result")
+        Optional[List[str]], Field(description="List of writers associated with the media result")
     ] = None
     actors: Annotated[
-        Optional[List[str]], Field(
-            description="List of actors associated with the media result")
+        Optional[List[str]], Field(description="List of actors associated with the media result")
     ] = None
     content_rating: Annotated[
         Optional[str], Field(description="Content rating of the media result")
     ] = None
     runtime_seconds: Annotated[
-        Optional[int], Field(
-            description="Runtime of the media result in seconds")
+        Optional[int], Field(description="Runtime of the media result in seconds")
     ] = None
-    tagline: Annotated[Optional[str], Field(
-        description="Tagline of the media result")] = None
+    tagline: Annotated[Optional[str], Field(description="Tagline of the media result")] = None
     similar_media: Annotated[
         Optional[List[SimilarMedia]],
         Field(description="List of media similar to this media result"),
     ] = None
     why: Annotated[
-        Optional[str], Field(
-            description="Reasoning for the media result's inclusion")
+        Optional[str], Field(description="Reasoning for the media result's inclusion")
     ] = None
 
 
 class Retrieval(BaseModel):
-    dense_weight: Annotated[float, Field(
-        description="Weight for dense retrieval")]
-    sparse_weight: Annotated[float, Field(
-        description="Weight for sparse retrieval")]
+    dense_weight: Annotated[float, Field(description="Weight for dense retrieval")]
+    sparse_weight: Annotated[float, Field(description="Weight for sparse retrieval")]
 
 
 class Diagnostics(BaseModel):
-    retrieval: Annotated[Retrieval, Field(
-        description="Details about the retrieval process")]
+    retrieval: Annotated[Retrieval, Field(description="Details about the retrieval process")]
     reranker: Annotated[Optional[str], Field(description="Details about the reranking process")] = (
         None
     )
-    filters_applied: Annotated[bool, Field(
-        description="Whether any filters were applied")] = False
+    filters_applied: Annotated[bool, Field(description="Whether any filters were applied")] = False
     fallback_used: Annotated[bool, Field(description="Whether a fallback mechanism was used")] = (
         False
     )
 
 
 class MediaSearchResponse(BaseModel):
-    results: Annotated[List[MediaResult], Field(
-        description="List of media search results")]
-    total: Annotated[int, Field(
-        description="Total number of results found", ge=0)]
-    used_intent: Annotated[str, Field(
-        description="Intent used for the search")]
-    used_scope: Annotated[Scope | str, Field(
-        description="Scope used for the search")]
+    results: Annotated[List[MediaResult], Field(description="List of media search results")]
+    total: Annotated[int, Field(description="Total number of results found", ge=0)]
+    used_intent: Annotated[str, Field(description="Intent used for the search")]
+    used_scope: Annotated[Scope | str, Field(description="Scope used for the search")]
     diagnostics: Annotated[
-        Diagnostics, Field(
-            description="Diagnostics information about the search")
+        Diagnostics, Field(description="Diagnostics information about the search")
     ]
 
 
 class Pagination(BaseModel):
     limit: Annotated[
-        Optional[int], Field(
-            default=10, description="Maximum number of results to return")
+        Optional[int], Field(default=10, description="Maximum number of results to return")
     ] = 10
     offset: Annotated[
         Optional[int],
-        Field(
-            default=0, description="Number of results to skip before starting to collect"),
+        Field(default=0, description="Number of results to skip before starting to collect"),
     ] = 0
 
 
@@ -577,8 +521,7 @@ def _explain_condition(
             return ok, f"{'✓' if ok else '✗'} {key} == {match['value']!r}"
         if "any" in match:
             wanted_any = _to_set(match["any"])
-            cand = _to_set(val if isinstance(val, list) else [
-                           val] if val is not None else [])
+            cand = _to_set(val if isinstance(val, list) else [val] if val is not None else [])
             ok = bool(wanted_any & cand)
             return ok, f"{'✓' if ok else '✗'} {key} intersects {sorted(wanted_any)}"
         if "phrase" in match:
@@ -586,8 +529,7 @@ def _explain_condition(
             if isinstance(val, list):
                 ok = any(wanted_phrase in _to_set(v) for v in val)
             else:
-                ok = (str(val).lower() ==
-                      wanted_phrase) if val is not None else False
+                ok = (str(val).lower() == wanted_phrase) if val is not None else False
             return ok, f"{'✓' if ok else '✗'} {key} contains {match['phrase']!r}"
 
     # range …
@@ -620,14 +562,12 @@ def _explain_filter(name: str, f: Optional[Filter], payload: PlexMediaPayload) -
         results = [
             _explain_condition(payload, c)
             for c in (
-                None if f.must is None else (
-                    f.must if isinstance(f.must, list) else [f.must])
+                None if f.must is None else (f.must if isinstance(f.must, list) else [f.must])
             )
             or []
         ]
         ok = all(x for x, _ in results)
-        notes.append(f"{'PASS' if ok else 'FAIL'} must: " +
-                     "; ".join(msg for _, msg in results))
+        notes.append(f"{'PASS' if ok else 'FAIL'} must: " + "; ".join(msg for _, msg in results))
     if f.should:
         results = [
             _explain_condition(payload, c)
@@ -641,8 +581,7 @@ def _explain_filter(name: str, f: Optional[Filter], payload: PlexMediaPayload) -
         # should is advisory; count hits
         hits = sum(1 for ok, _ in results if ok)
         notes.append(
-            f"{hits}/{len(results)} should matched: " +
-            "; ".join(msg for _, msg in results)
+            f"{hits}/{len(results)} should matched: " + "; ".join(msg for _, msg in results)
         )
     if f.must_not:
         results = [
@@ -703,8 +642,7 @@ def explain_match(
     lines: list[str] = []
 
     # Header
-    lines.append(
-        f"{p.title} ({p.year})  — score={result.score:.4f} [{ctx.score_interpretation}]")
+    lines.append(f"{p.title} ({p.year})  — score={result.score:.4f} [{ctx.score_interpretation}]")
     lines.append(
         f"type={p.type}  duration={p.duration_seconds}s  content_rating={p.content_rating or 'N/A'}"
     )
@@ -727,8 +665,7 @@ def explain_match(
     # Query kind
     if ctx.query_kind == "recommend":
         if ctx.positive_point_ids:
-            lines.append(
-                f"• Ranked by similarity to positive IDs: {ctx.positive_point_ids}")
+            lines.append(f"• Ranked by similarity to positive IDs: {ctx.positive_point_ids}")
         else:
             lines.append("• Ranked by recommend() style query (no IDs listed)")
     elif ctx.query_kind == "text":
@@ -749,8 +686,7 @@ def explain_match(
     # Content snippets that help LLM justify to users
     # keep short to avoid turning this into a novel
     if p.genres:
-        lines.append("• Genres: " +
-                     ", ".join(sorted(set(p.genres), key=str.lower)))
+        lines.append("• Genres: " + ", ".join(sorted(set(p.genres), key=str.lower)))
     if p.actors:
         lines.append(
             "• Actors: "
@@ -758,11 +694,9 @@ def explain_match(
             + ("…" if len(p.actors) > 8 else "")
         )
     if p.directors:
-        lines.append("• Directors: " +
-                     ", ".join(sorted(set(p.directors), key=str.lower)))
+        lines.append("• Directors: " + ", ".join(sorted(set(p.directors), key=str.lower)))
     if p.writers:
-        lines.append("• Writers: " +
-                     ", ".join(sorted(set(p.writers), key=str.lower)))
+        lines.append("• Writers: " + ", ".join(sorted(set(p.writers), key=str.lower)))
 
     return "\n".join(lines)
 
@@ -1055,8 +989,7 @@ async def filter_points(
     if filters.directors:
         musts.extend(
             [
-                FieldCondition(key="directors",
-                               match=MatchValue(value=director))
+                FieldCondition(key="directors", match=MatchValue(value=director))
                 for director in filters.directors
             ]
         )
@@ -1068,20 +1001,15 @@ async def filter_points(
             ]
         )
     if filters.title:
-        musts.append(FieldCondition(
-            key="title", match=MatchText(text=filters.title)))
+        musts.append(FieldCondition(key="title", match=MatchText(text=filters.title)))
     if filters.summary:
-        musts.append(FieldCondition(
-            key="summary", match=MatchPhrase(phrase=filters.summary)))
+        musts.append(FieldCondition(key="summary", match=MatchPhrase(phrase=filters.summary)))
     if filters.season:
-        musts.append(FieldCondition(
-            key="season", match=MatchValue(value=filters.season)))
+        musts.append(FieldCondition(key="season", match=MatchValue(value=filters.season)))
     if filters.episode:
-        musts.append(FieldCondition(
-            key="episode", match=MatchValue(value=filters.episode)))
+        musts.append(FieldCondition(key="episode", match=MatchValue(value=filters.episode)))
     if filters.show_title:
-        musts.append(FieldCondition(key="show_title",
-                     match=MatchPhrase(phrase=filters.show_title)))
+        musts.append(FieldCondition(key="show_title", match=MatchPhrase(phrase=filters.show_title)))
     _LOGGER.info(
         f'Filtering points with conditions: {json.dumps({
             "collection_name": collection,
@@ -1093,8 +1021,7 @@ async def filter_points(
     result = await KnowledgeBase.instance().qdrant_client.query_points(
         collection_name=collection, query_filter=Filter(must=musts), using="dense", limit=100
     )
-    _LOGGER.info(
-        f"Found {len(result.points)} points matching the query and filters.")
+    _LOGGER.info(f"Found {len(result.points)} points matching the query and filters.")
     _LOGGER.info(json.dumps(result.model_dump(), indent=2))
     return [DataPoint(payload_class=PlexMediaPayload, **p.model_dump()) for p in result.points]
 
@@ -1175,26 +1102,22 @@ def build_filters(
     min_should: MinShould | None = None
     if genres:
         musts.extend(
-            [FieldCondition(key="genres", match=MatchValue(value=genre))
-             for genre in genres]
+            [FieldCondition(key="genres", match=MatchValue(value=genre)) for genre in genres]
         )
     if directors:
         musts.extend(
             [
-                FieldCondition(key="directors",
-                               match=MatchValue(value=director))
+                FieldCondition(key="directors", match=MatchValue(value=director))
                 for director in directors
             ]
         )
     if writers:
         musts.extend(
-            [FieldCondition(key="writers", match=MatchValue(value=writer))
-             for writer in writers]
+            [FieldCondition(key="writers", match=MatchValue(value=writer)) for writer in writers]
         )
     if actors:
         musts.extend(
-            [FieldCondition(key="actors", match=MatchValue(value=actor))
-             for actor in actors]
+            [FieldCondition(key="actors", match=MatchValue(value=actor)) for actor in actors]
         )
     if aired_date:
         after: date | None = None
@@ -1213,28 +1136,21 @@ def build_filters(
             )
         if after or before:
             musts.append(
-                FieldCondition(key="aired_date",
-                               range=DatetimeRange(gte=after, lte=before))
+                FieldCondition(key="aired_date", range=DatetimeRange(gte=after, lte=before))
             )
     if series:
-        musts.append(FieldCondition(
-            key="season", match=MatchValue(value=series)))
+        musts.append(FieldCondition(key="season", match=MatchValue(value=series)))
     if season:
-        shoulds.extend(
-            [FieldCondition(key="season", match=MatchValue(value=e)) for e in season])
+        shoulds.extend([FieldCondition(key="season", match=MatchValue(value=e)) for e in season])
     if episode:
-        shoulds.extend(
-            [FieldCondition(key="episode", match=MatchValue(value=e)) for e in episode])
+        shoulds.extend([FieldCondition(key="episode", match=MatchValue(value=e)) for e in episode])
     if rating:
         if rating.minimum:
-            musts.append(FieldCondition(
-                key="rating", range=Range(gte=rating.minimum)))
+            musts.append(FieldCondition(key="rating", range=Range(gte=rating.minimum)))
         if rating.maximum:
-            musts.append(FieldCondition(
-                key="rating", range=Range(lte=rating.maximum)))
+            musts.append(FieldCondition(key="rating", range=Range(lte=rating.maximum)))
     if watched:
-        musts.append(FieldCondition(
-            key="watched", match=MatchValue(value=watched)))
+        musts.append(FieldCondition(key="watched", match=MatchValue(value=watched)))
     if len(musts) == 0 and len(shoulds) == 0 and min_should is None:
         return None
     return Filter(
@@ -1299,14 +1215,6 @@ def find_media_tool(mcp: FastMCP) -> None:
                 default=None,
                 title="Actors",
                 description="Query for media that the following individuals act in.",
-            ),
-        ] = None,
-        with_title: Annotated[
-            Optional[str],
-            Field(
-                default=None,
-                title="Title",
-                description="Query for media that has titles similar to this.",
             ),
         ] = None,
         summary: Annotated[
@@ -1484,8 +1392,7 @@ def find_media_tool(mcp: FastMCP) -> None:
             with_payload=True,
         )
 
-        _LOGGER.info(
-            f"Found {len(results.points)} points matching the query and filters.")
+        _LOGGER.info(f"Found {len(results.points)} points matching the query and filters.")
         _LOGGER.info(json.dumps(results.model_dump(), indent=2))
         must = cast(
             list[Condition], context.outer_filter.must if context.outer_filter is not None else []
