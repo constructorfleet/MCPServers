@@ -168,9 +168,9 @@ class SeriesStatus(StrEnum):
 
 
 class Filters(BaseModel):
-    similar: Annotated[Optional[str], Field(description="Title or key of media to seed query.")] = (
-        None,
-    )
+    similar: Annotated[
+        Optional[str], Field(description="Title or key of similar media to anchor the query.")
+    ] = (None,)
     genres_any: Annotated[
         Optional[List[Annotated[str, Field(description="Genre to match")]]],
         Field(description="At least one genre must match."),
@@ -822,12 +822,21 @@ def find_media_tool(mcp: FastMCP) -> None:
                 ],
             ),
         ] = None,
-        anchor_filter: Annotated[
+        similar_to_filter: Annotated[
             Seed,
             Field(
                 default=empty_seed,
-                title="Query Seed",
-                description="One or more known media properties to use as a similarity anchor. The search engine will prefetch items most similar to these anchors, then apply the rest of your filters or query terms. Use this when you want to find “things like this” before narrowing results.",
+                title="Similarity Anchor Filter",
+                description=(
+                    "Attributes of known media used as an anchor for similarity search. "
+                    "The search process first finds media most similar to these attributes, "
+                    "then applies all other filters and query terms to that set.\n\n"
+                    "Use when the request is about 'things like this' or 'similar to this'.\n\n"
+                    "Examples:\n"
+                    '1. What movies are like Together? -> title="Together"\n'
+                    '2. Find me a thriller movie with Scarlett Johansson -> actors="Scarlett Johansson", genres="thriller"\n'
+                    '3. Episodes like the one where the doctor fights the alien queen -> summary="doctor fights the alien queen"'
+                ),
                 json_schema_extra=Seed.model_json_schema(),
             ),
         ] = empty_seed,
@@ -868,7 +877,7 @@ def find_media_tool(mcp: FastMCP) -> None:
         # safety: Annotated[Optional[Safety], Field(
         #     description="Safety options for the search.")] = None,
     ) -> MediaSearchResponse:
-        if uncategorized_query is None and anchor_filter is None and filters is None:
+        if uncategorized_query is None and similar_to_filter is None and filters is None:
             raise ValueError("At least one of query, seeds, or filters must be provided")
         collection = str(media_type)
         if collection not in ("movies", "episodes"):
@@ -879,32 +888,42 @@ def find_media_tool(mcp: FastMCP) -> None:
         prefetch: list[Prefetch] = []
         if any(
             [
-                anchor_filter.title,
-                anchor_filter.summary,
-                anchor_filter.series,
-                anchor_filter.season,
-                anchor_filter.episode,
-                anchor_filter.genres,
-                anchor_filter.directors,
-                anchor_filter.writers,
-                anchor_filter.actors,
+                similar_to_filter.title,
+                similar_to_filter.summary,
+                similar_to_filter.series,
+                similar_to_filter.season,
+                similar_to_filter.episode,
+                similar_to_filter.genres,
+                similar_to_filter.directors,
+                similar_to_filter.writers,
+                similar_to_filter.actors,
                 filters.similar,
             ]
         ):
             positive_seeds = await filter_points(
                 collection,
                 PlexMediaQuery(
-                    title=anchor_filter.title or filters.similar,
-                    summary=anchor_filter.summary,
-                    show_title=anchor_filter.series,
-                    season=anchor_filter.season,
-                    episode=anchor_filter.episode if anchor_filter.episode is not None else None,
-                    genres=anchor_filter.genres.split(",") if anchor_filter.genres else None,
-                    directors=(
-                        anchor_filter.directors.split(",") if anchor_filter.directors else None
+                    title=similar_to_filter.title or filters.similar,
+                    summary=similar_to_filter.summary,
+                    show_title=similar_to_filter.series,
+                    season=similar_to_filter.season,
+                    episode=(
+                        similar_to_filter.episode if similar_to_filter.episode is not None else None
                     ),
-                    writers=anchor_filter.writers.split(",") if anchor_filter.writers else None,
-                    actors=anchor_filter.actors.split(",") if anchor_filter.actors else None,
+                    genres=(
+                        similar_to_filter.genres.split(",") if similar_to_filter.genres else None
+                    ),
+                    directors=(
+                        similar_to_filter.directors.split(",")
+                        if similar_to_filter.directors
+                        else None
+                    ),
+                    writers=(
+                        similar_to_filter.writers.split(",") if similar_to_filter.writers else None
+                    ),
+                    actors=(
+                        similar_to_filter.actors.split(",") if similar_to_filter.actors else None
+                    ),
                 ),
             )
 
