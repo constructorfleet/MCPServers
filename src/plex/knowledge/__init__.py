@@ -8,6 +8,7 @@ from plex.knowledge.types import PlexMediaPayload, PlexMediaQuery, TModel
 from plex.knowledge.utils import ensure_collection, ensure_payload_indexes
 import logging
 
+logging.getLogger("qdrant_client").setLevel(logging.DEBUG)
 _LOGGER = logging.getLogger(__name__)
 
 __all__ = ["KnowledgeBase", "PlexMediaPayload", "PlexMediaQuery"]
@@ -44,19 +45,27 @@ class KnowledgeBase:
         )
         self.model = model
         self._collection_cache: dict[str, Collection] = {}
-        self.enable_rerank: bool = os.environ.get("ENABLE_RERANK", "false") == "true"
-        self.reranker_name: Optional[str] = os.environ.get("RERANKER_NAME", None)
+        self.enable_rerank: bool = os.environ.get(
+            "ENABLE_RERANK", "false") == "true"
+        self.reranker_name: Optional[str] = os.environ.get(
+            "RERANKER_NAME", None)
         self.enable_two_pass_fusion: bool = (
             os.environ.get("ENABLE_TWO_PASS_FUSION", "false") == "true"
         )
-        self.fusion_dense_weight: float = float(os.environ.get("FUSION_DENSE_WEIGHT", "0.7"))
-        self.fusion_sparse_weight: float = float(os.environ.get("FUSION_SPARSE_WEIGHT", "0.3"))
-        self.fusion_prelimit: int = int(os.environ.get("FUSION_PRELIMIT", "200"))
-        self.enable_server_fusion: bool = os.environ.get("ENABLE_SERVER_FUSION", "false") == "true"
+        self.fusion_dense_weight: float = float(
+            os.environ.get("FUSION_DENSE_WEIGHT", "0.7"))
+        self.fusion_sparse_weight: float = float(
+            os.environ.get("FUSION_SPARSE_WEIGHT", "0.3"))
+        self.fusion_prelimit: int = int(
+            os.environ.get("FUSION_PRELIMIT", "200"))
+        self.enable_server_fusion: bool = os.environ.get(
+            "ENABLE_SERVER_FUSION", "false") == "true"
         # only rrf supported currently
         self.server_fusion_method: Literal["rrf"] = "rrf"
-        self.enable_diversity: bool = os.environ.get("ENABLE_DIVERSITY", "false") == "true"
-        self.diversity_lambda: float = float(os.environ.get("DIVERSITY_LAMBDA", "0.3"))
+        self.enable_diversity: bool = os.environ.get(
+            "ENABLE_DIVERSITY", "false") == "true"
+        self.diversity_lambda: float = float(
+            os.environ.get("DIVERSITY_LAMBDA", "0.3"))
         # cap results per series/franchise
         self.max_per_series: int = int(os.environ.get("MAX_PER_SERIES", "1"))
 
@@ -67,7 +76,8 @@ class KnowledgeBase:
             dim: Dimension of the dense vector embeddings
         """
         await ensure_collection(
-            self.qdrant_client, "movies", dim or self.qdrant_client.get_embedding_size(self.model)
+            self.qdrant_client, "movies", dim or self.qdrant_client.get_embedding_size(
+                self.model)
         )
         await ensure_payload_indexes(self.qdrant_client, "movies")
         collection = await self._fetch_collection(
@@ -84,7 +94,8 @@ class KnowledgeBase:
             dim: Dimension of the dense vector embeddings
         """
         await ensure_collection(
-            self.qdrant_client, "episodes", dim or self.qdrant_client.get_embedding_size(self.model)
+            self.qdrant_client, "episodes", dim or self.qdrant_client.get_embedding_size(
+                self.model)
         )
         await ensure_payload_indexes(self.qdrant_client, "episodes")
         collection = await self._fetch_collection(
@@ -101,7 +112,8 @@ class KnowledgeBase:
             dim: Dimension of the dense vector embeddings
         """
         await ensure_collection(
-            self.qdrant_client, "media", dim or self.qdrant_client.get_embedding_size(self.model)
+            self.qdrant_client, "media", dim or self.qdrant_client.get_embedding_size(
+                self.model)
         )
         await ensure_payload_indexes(self.qdrant_client, "media")
         collection = await self._fetch_collection(
