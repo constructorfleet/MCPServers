@@ -879,7 +879,7 @@ def find_media_tool(mcp: FastMCP) -> None:
             MediaType,
             Field(
                 title="Media Type",
-                description="The type of media to query.",
+                description="The media library section to query 'movies' or 'episodes'.",
                 examples=["movies", "episodes"],
             ),
         ],
@@ -943,6 +943,11 @@ def find_media_tool(mcp: FastMCP) -> None:
         if uncategorized_query is None and query_seed is None and filters is None:
             raise ValueError(
                 "At least one of query, seeds, or filters must be provided")
+        if media_type not in ("movies", "episodes"):
+            if media_type in ["movie", "episode"]:
+                media_type = media_type + "s"  # type: ignore
+            else:
+                raise ValueError("media_type must be 'movies' or 'episodes'")
         prefetch: list[Prefetch] = []
         if any(
             [

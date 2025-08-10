@@ -7,6 +7,12 @@ from qdrant_client.models import ScoredPoint
 MediaType = Literal["movie"] | Literal["episode"]
 
 
+class Review(BaseModel):
+    key: str
+    reviewer: str
+    text: str
+
+
 class PlexMediaPayload(BaseModel):
     """Data model for Plex media items (movies and episodes).
 
@@ -32,6 +38,9 @@ class PlexMediaPayload(BaseModel):
     season: Optional[int]
     episode: Optional[int]
     air_date: Optional[date]
+    producers: Optional[list[str]] = None
+    reviews: Optional[list[Review]] = None
+    ratings: Optional[dict[str, float]] = None
 
     @classmethod
     def document(cls, item: "PlexMediaPayload") -> str:
@@ -97,6 +106,9 @@ class PlexMediaQuery(PlexMediaPayload):
     episode: Optional[int] = None  # type: ignore
     air_date: Optional[date] = None  # type: ignore
     similar_to: Optional[int] = None  # type: ignore
+    roducers: Optional[list[str]] = None
+    reviews: Optional[list[Review]] = None
+    ratings: Optional[dict[str, float]] = None
 
 
 TModel = TypeVar("TModel", bound=PlexMediaPayload)
