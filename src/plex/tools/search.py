@@ -753,7 +753,7 @@ async def search_as_tool(
 
 
 async def filter_points(
-    scope: MediaType,
+    collection: str,
     filters: PlexMediaQuery,
 ) -> list[DataPoint[PlexMediaPayload]]:
     """Filter data points based on the provided filters.
@@ -804,7 +804,7 @@ async def filter_points(
         musts.append(FieldCondition(key="show_title",
                      match=MatchPhrase(phrase=filters.show_title)))
     result = await KnowledgeBase.instance().qdrant_client.query_points(
-        collection_name=scope, query_filter=Filter(must=musts), limit=10000
+        collection_name=collection, query_filter=Filter(must=musts), limit=10000
     )
     return [DataPoint(payload_class=PlexMediaPayload, **p.model_dump()) for p in result.points]
 
@@ -939,9 +939,10 @@ def find_media_tool(mcp: FastMCP) -> None:
         if uncategorized_query is None and query_seed is None and filters is None:
             raise ValueError(
                 "At least one of query, seeds, or filters must be provided")
-        if media_type not in ("movies", "episodes"):
-            if media_type in ["movie", "episode"]:
-                media_type = media_type + "s"  # type: ignore
+        collection = str(media_type)
+        if collection not in ("movies", "episodes"):
+            if collection in ["movie", "episode"]:
+                collection = str(media_type) + "s"
             else:
                 raise ValueError("media_type must be 'movies' or 'episodes'")
         prefetch: list[Prefetch] = []
@@ -959,7 +960,7 @@ def find_media_tool(mcp: FastMCP) -> None:
             ]
         ):
             positive_seeds = await filter_points(
-                media_type,
+                collection,
                 PlexMediaQuery(
                     title=query_seed.title,
                     summary=query_seed.summary,
@@ -1122,7 +1123,7 @@ def find_media_tool(mcp: FastMCP) -> None:
             )
 
         results = await KnowledgeBase.instance().qdrant_client.query_points(
-            collection_name=media_type,
+            collection_name=collection,
             prefetch=prefetch,
             query=uncategorized_query,
             query_filter=Filter(must=musts, should=shoulds),
@@ -1149,27 +1150,3 @@ def find_media_tool(mcp: FastMCP) -> None:
                 fallback_used=uncategorized_query is not None,
             ),
         )
-
-        # return await query_as_tool(
-        #     scope=scope,
-        #     query=uncategorized_query,,
-        #     limit=pagination.limit if pagination else None,
-        #     used_intent=intent.value if intent else "auto",
-        #     used_scope=scope.value if scope else "auto",
-        #     enable_two_pass_fusion=hybrid is not None,
-        #     fusion_dense_weight=(
-        #         hybrid.dense_weight if hybrid is not None else None) or 0.7,
-        #     fusion_sparse_weight=(
-        #         hybrid.sparse_weight if hybrid is not None else None) or 0.3,
-        #     reranker_name=(
-        #         rerank.model if rerank is not None else None) or "heuristic-v1",
-        # )
-
-        # return await search_as_tool(
-        #     scope=scope,
-        #     seeds=seeds,
-        #     filters=filters,
-        #     used_intent=intent.value if intent else "auto",
-        #     used_scope=scope.value if scope else "auto",
-        #     pagination=pagination,
-        # )

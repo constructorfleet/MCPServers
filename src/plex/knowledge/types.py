@@ -13,6 +13,12 @@ class Review(BaseModel):
     text: str
 
 
+class Rating(BaseModel):
+    source: str
+    type: str
+    score: float
+
+
 class PlexMediaPayload(BaseModel):
     """Data model for Plex media items (movies and episodes).
 
@@ -40,7 +46,7 @@ class PlexMediaPayload(BaseModel):
     air_date: Optional[date]
     producers: Optional[list[str]] = None
     reviews: Optional[list[Review]] = None
-    ratings: Optional[dict[str, float]] = None
+    ratings: Optional[list[Rating]] = None
 
     @classmethod
     def document(cls, item: "PlexMediaPayload") -> str:
@@ -57,6 +63,9 @@ class PlexMediaPayload(BaseModel):
             parts.append("Title: " + item.title)
         if item.summary:
             parts.append("Summary: " + item.summary)
+        if item.reviews:
+            parts.append(
+                "Reviews: " + " ".join(review.text for review in item.reviews))
         if item.genres:
             parts.append("Genres: " + ", ".join(item.genres))
         if item.actors:
@@ -108,7 +117,7 @@ class PlexMediaQuery(PlexMediaPayload):
     similar_to: Optional[int] = None  # type: ignore
     roducers: Optional[list[str]] = None
     reviews: Optional[list[Review]] = None
-    ratings: Optional[dict[str, float]] = None
+    ratings: Optional[list[Rating]] = None
 
 
 TModel = TypeVar("TModel", bound=PlexMediaPayload)

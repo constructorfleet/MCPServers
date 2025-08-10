@@ -18,6 +18,7 @@ from qdrant_client.models import (
     CollectionInfo,
     Condition,
     Document,
+    ExtendedPointId,
     Prefetch,
     Vector,
 )
@@ -100,6 +101,11 @@ class Collection(CollectionInfo, Generic[TModel]):
             parallel=10,
             wait=wait,
         )
+
+    async def point_ids(self) -> list[ExtendedPointId]:
+        """Retrieve all point IDs from the collection."""
+        results = await self.qdrant_client.query_points(collection_name=self.name, limit=50000)
+        return [point.id for point in results.points]
 
     async def search(
         self,
