@@ -62,27 +62,7 @@ jobs:
           subject-name: ${{ steps.image-info.outputs.image_name }}
           subject-digest: ${{ steps.image-info.outputs.image_digest }}
           push-to-registry: true
-      - name: Get image name and subject
-        id: image-info-version
-        run: |
-          version=$(grep '^version =' "${{ matrix.package }}/pyproject.toml" | cut -d'"' -f2)
-          full="$(docker image inspect --format="{{index .RepoDigests 0}}" "${{ env.REGISTRY }}/${{ env.ORG }}/mcp-${{ matrix.package }}:${version}")"
 
-          # Split into image and digest
-          IFS="@" read -r image digest <<< "$full"
-
-          # Set outputs
-          echo "full=$full" >> "$GITHUB_OUTPUT"
-          echo "image_name=$image" >> "$GITHUB_OUTPUT"
-          echo "image_digest=$digest" >> "$GITHUB_OUTPUT"
-
-      # This step generates an artifact attestation for the image, which is an unforgeable statement about where and how it was built. It increases supply chain security for people who consume the image. For more information, see [Using artifact attestations to establish provenance for builds](/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds).
-      - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-name: ${{ steps.image-info-version.outputs.image_name }}
-          subject-digest: ${{ steps.image-info-version.outputs.image_digest }}
-          push-to-registry: true
   build-and-push-images:
     needs: build-and-push-base
     strategy:
@@ -133,10 +113,10 @@ jobs:
           subject-digest: ${{ steps.image-info.outputs.image_digest }}
           push-to-registry: true
       - name: Get image name and subject
-        id: image-info-version
+        id: image-info2
+        if: ${{ matrix.package == 'plex' }}
         run: |
-          version=$(grep '^version =' "${{ matrix.package }}/pyproject.toml" | cut -d'"' -f2)
-          full="$(docker image inspect --format="{{index .RepoDigests 0}}" "${{ env.REGISTRY }}/${{ env.ORG }}/mcp-${{ matrix.package }}:${version}")"
+          full="$(docker image inspect --format="{{index .RepoDigests 0}}" "${{ env.REGISTRY }}/${{ env.ORG }}/mcp-${{ matrix.package }}-service:latest")"
 
           # Split into image and digest
           IFS="@" read -r image digest <<< "$full"
@@ -150,7 +130,8 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ${{ steps.image-info-version.outputs.image_name }}
-          subject-digest: ${{ steps.image-info-version.outputs.image_digest }}
+          subject-name: ${{ steps.image-info2.outputs.image_name }}
+          subject-digest: ${{ steps.image-info2.outputs.image_digest }}
           push-to-registry: true
+
       

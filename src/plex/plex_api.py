@@ -8,6 +8,7 @@ from typing import (
     Literal,
     Mapping,
     Optional,
+    Sequence,
     Type,
     TypedDict,
     Unpack,
@@ -21,12 +22,9 @@ from plexapi.media import Media
 from plexapi.server import PlexServer
 from qdrant_client.models import ExtendedPointId
 
-# , PointStruct
-
 from plex.knowledge import Collection, KnowledgeBase, PlexMediaPayload, PlexMediaQuery
 from plex.knowledge.types import Rating, Review
-
-# from plex.knowledge.utils import sparse_from_text
+from plex.utils import batch_map
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -229,6 +227,9 @@ class PlexAPI:
             timeout=httpx.Timeout(1000.0, read=3600.0),
         )
         self.server = PlexServer(base_url, token)
+        
+    async def close(self):
+        await self.client.aclose()
 
     async def _make_request(
         self,
@@ -423,6 +424,9 @@ class PlexTextSearch:
         self.knowledge_base = knowledge_base
         self._loaded = False
         self._media: Collection[PlexMediaPayload]
+        
+    async def close(self):
+        await self.knowledge_base.close()
 
     async def _load_items(self) -> None:
         """
@@ -440,53 +444,27 @@ class PlexTextSearch:
         all_payloads = await asyncio.gather(
             *[self.plex.get_library_section_contents(int(section["key"])) for section in sections]
         )
-        for item in itertools.chain.from_iterable(all_payloads):
-            if not item:
-                continue
-            plex_payload = PlexMediaPayload(
-                key=int(item.get("ratingKey", "")),
-                title=item.get("title", ""),
-                summary=item.get("summary", ""),
-                genres=([g["tag"] for g in item.get("Genre", [])] if item.get("Genre") else []),
-                directors=(
-                    [d["tag"] for d in item.get("Director", [])] if item.get("Director") else []
-                ),
-                actors=[a["tag"] for a in item.get("Role", [])] if item.get("Role") else [],
-                writers=([w["tag"] for w in item.get("Writer", [])] if item.get("Writer") else []),
-                year=int(item.get("year")) if item.get("year", None) else 0,
-                studio=item.get("studio", ""),
-                rating=float(item.get("rating", 0.0)) * 10 if item.get("rating") else 0.0,
-                content_rating=item.get("contentRating"),
-                type=item.get("type", ""),
-                watched=item.get("viewCount", 0) > 0,
-                duration_seconds=int(item.get("duration", 0)),
-                show_title=item.get("grandparentTitle"),
-                season=int(item.get("parentIndex")) if item.get("parentTitle") else None,
-                episode=int(item.get("index")) if item.get("index") else None,
-                air_date=(
-                    date.fromisoformat(item.get("originallyAvailableAt"))
-                    if isinstance(item.get("originallyAvailableAt"), str)
-                    else item.get("originallyAvailableAt")
-                ),
-            )
-            items.append(plex_payload)
+        _LOGGER.info("Loading details...")
+        results = await batch_map([
+            item["ratingKey"] for item in list(itertools.chain.from_iterable(all_payloads))
+        ], self._load_details, batch_size=50, concurrency=10, return_exceptions=False)
+        items.extend([
+            item
+            for item in results if item is not None and isinstance(item, PlexMediaPayload)
+        ])
 
         await self._do_upload(items)
         self._loaded = True
-        # asyncio.create_task(self._load_all_details())
 
     async def _do_upload(self, items: list[PlexMediaPayload]) -> None:
         _LOGGER.info("Prepping media items for upload")
         media_collection = self._media
         movie_collection = await self.knowledge_base.ensure_movies()
         episode_collection = await self.knowledge_base.ensure_episodes()
-        all_media = await media_collection.point_ids()
-        all_movies = await movie_collection.point_ids() if movie_collection else []
-        all_episodes = await episode_collection.point_ids() if episode_collection else []
-        media = [point for point in items if point.key not in all_media]
-        movies = [point for point in items if point.key not in all_movies and point.type == "movie"]
-        episodes = [
-            point for point in items if point.key not in all_episodes and point.type == "episode"
+        media: Sequence[PlexMediaPayload] = [point for point in items if point.type == "media"]
+        movies: Sequence[PlexMediaPayload] = [point for point in items if point.type == "movie"]
+        episodes: Sequence[PlexMediaPayload] = [
+            point for point in items if  point.type == "episode"
         ]
         if movie_collection:
             _LOGGER.info("Upserting %d items into movie collection", len(movies))
@@ -505,7 +483,7 @@ class PlexTextSearch:
         if media_collection:
             _LOGGER.info("Upserting %d items into media collection", len(items))
             await media_collection.upsert_data(
-                media,
+                media,  # type: ignore
                 lambda x: x.key,
                 False,
             )
@@ -560,26 +538,16 @@ class PlexTextSearch:
             ],
         )
 
-    # async def _load_all_details(self):
-    #     if not self._media:
-    #         if media := await self.knowledge_base.ensure_media():
-    #             self._media = media
-    #         else:
-    #             return
-    #     point_ids = await self._media.point_ids()
-    #     payloads = await batch_map(point_ids, self._load_details)
-    #     await self._do_upload(
-    #         [p for p in payloads if p is not None and isinstance(p, PlexMediaPayload)]
-    #     )
-
-    async def schedule_load_items(self):
+    async def schedule_load_items(self, sleep: int = 60):
         await self._load_items()
 
-        async def schedule_next_load():
-            await asyncio.sleep(60 * 60)
-            await self.schedule_load_items()
-
-        self._load_items_task = asyncio.create_task(schedule_next_load())
+        try:
+            while True:
+                await asyncio.sleep(sleep * 60)
+                await self.schedule_load_items()
+        except asyncio.CancelledError:
+            _LOGGER.error("schedule_load_items cancelled")
+            raise
 
     async def find_media(
         self,

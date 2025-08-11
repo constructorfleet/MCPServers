@@ -5,15 +5,6 @@ from typing import Callable, Generic, Type, Optional
 from pydantic import ConfigDict
 from qdrant_client.async_qdrant_client import AsyncQdrantClient
 from qdrant_client.conversions import common_types as types
-from qdrant_client.http.models import (
-    FieldCondition,
-    Filter,
-    Fusion,
-    FusionQuery,
-    MatchPhrase,
-    MatchValue,
-    MinShould,
-)
 from qdrant_client.models import (
     CollectionInfo,
     Condition,
@@ -21,9 +12,17 @@ from qdrant_client.models import (
     ExtendedPointId,
     Prefetch,
     Vector,
+    FieldCondition,
+    Filter,
+    Fusion,
+    FusionQuery,
+    MatchPhrase,
+    MatchValue,
+    MatchText,
+    MinShould,
 )
 
-from plex.knowledge.types import TModel
+from plex.knowledge.types import PlexMediaQuery, TModel
 from plex.knowledge.utils import (
     sparse_from_text,
     apply_diversity,
@@ -115,6 +114,68 @@ class Collection(CollectionInfo, Generic[TModel]):
         """Retrieve all point IDs from the collection."""
         results = await self.qdrant_client.query_points(collection_name=self.name, limit=50000)
         return [point.id for point in results.points]
+
+    async def filter_points(
+        self,
+        filters: PlexMediaQuery,
+    ) -> list[DataPoint[PlexMediaPayload]]:
+        """Filter data points based on the provided filters.
+
+        Args:
+            scope: The scope to filter within.
+            filters: The filters to apply.
+
+        Returns:
+            A list of filtered data points.
+        """
+        musts: list[Condition] = []
+        if filters.genres:
+            musts.extend(
+                [
+                    FieldCondition(key="genres", match=MatchValue(value=genre))
+                    for genre in filters.genres
+                ]
+            )
+        if filters.directors:
+            musts.extend(
+                [
+                    FieldCondition(key="directors", match=MatchValue(value=director))
+                    for director in filters.directors
+                ]
+            )
+        if filters.writers:
+            musts.extend(
+                [
+                    FieldCondition(key="writers", match=MatchValue(value=writer))
+                    for writer in filters.writers
+                ]
+            )
+        if filters.title:
+            musts.append(FieldCondition(key="title", match=MatchText(text=filters.title)))
+        if filters.summary:
+            musts.append(FieldCondition(key="summary", match=MatchPhrase(phrase=filters.summary)))
+        if filters.season:
+            musts.append(FieldCondition(key="season", match=MatchValue(value=filters.season)))
+        if filters.episode:
+            musts.append(FieldCondition(key="episode", match=MatchValue(value=filters.episode)))
+        if filters.show_title:
+            musts.append(
+                FieldCondition(key="show_title", match=MatchPhrase(phrase=filters.show_title))
+            )
+        _LOGGER.info(
+            f'Filtering points with conditions: {json.dumps({
+                "collection_name": self.name,
+                "query_filter": Filter(must=musts).model_dump(),
+                "using": "dense",
+                "limit": 100
+            }, indent=2)}'
+        )
+        result = await self.qdrant_client.query_points(
+            collection_name=self.name, query_filter=Filter(must=musts), using="dense", limit=100
+        )
+        _LOGGER.info(f"Found {len(result.points)} points matching the query and filters.")
+        _LOGGER.info(json.dumps(result.model_dump(), indent=2))
+        return [DataPoint(payload_class=PlexMediaPayload, **p.model_dump()) for p in result.points]
 
     async def search(
         self,

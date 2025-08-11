@@ -6,6 +6,7 @@ ORG ?= constructorfleet
 BASE_IMAGE := $(REGISTRY)/$(ORG)/mcp-base
 KAGI_IMAGE := $(REGISTRY)/$(ORG)/mcp-kagi
 PLEX_IMAGE := $(REGISTRY)/$(ORG)/mcp-plex
+PLEX_SERVICE_IMAGE := $(REGISTRY)/$(ORG)/mcp-plex-service
 
 all: build-base build-kagi build-plex
 
@@ -35,6 +36,11 @@ build-plex: build-base
 		--build-arg BASE_VERSION=$$BASE_VERSION \
 		-t $(PLEX_IMAGE):$$PLEX_VERSION \
 		-t $(PLEX_IMAGE):latest .
+	docker build -f plex/Dockerfile.service \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
+		--build-arg BASE_VERSION=$$BASE_VERSION \
+		-t $(PLEX_SERVICE_IMAGE):$$PLEX_VERSION \
+		-t $(PLEX_SERVICE_IMAGE):latest .
 
 push-base:
 	@BASE_VERSION=$$(grep '^version =' base/pyproject.toml | cut -d'"' -f2); \
@@ -50,5 +56,7 @@ push-plex:
 	@PLEX_VERSION=$$(grep '^version =' plex/pyproject.toml | cut -d'"' -f2); \
 	docker push $(PLEX_IMAGE):$$PLEX_VERSION
 	docker push $(PLEX_IMAGE):latest
+	docker push $(PLEX_SERVICE_IMAGE):$$PLEX_VERSION
+	docker push $(PLEX_SERVICE_IMAGE):latest
 
 push: push-base push-kagi push-plex

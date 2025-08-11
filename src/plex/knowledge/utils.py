@@ -1,16 +1,26 @@
 import hashlib
+from datetime import date, timedelta
 import math
 import re
 from collections import Counter
-from typing import Optional
+from typing import Iterable, Optional, Sequence, Tuple, Type, cast
 
 from qdrant_client.async_qdrant_client import AsyncQdrantClient
-from qdrant_client.http.models import (
+from qdrant_client.models import (
+    Condition,
+    Filter,
+    DatetimeRange,
+    Range,
+    SparseVector,
     Distance,
     KeywordIndexParams,
+    FieldCondition,
     KeywordIndexType,
     PayloadSchemaType,
     ScoredPoint,
+    Document,
+    MatchValue,
+    MinShould,
     Snowball,
     SnowballLanguage,
     SnowballParams,
@@ -20,11 +30,18 @@ from qdrant_client.http.models import (
     TokenizerType,
     VectorParams,
 )
-from qdrant_client.models import SparseVector
 
 import logging
 
-from plex.knowledge.types import DataPoint, PlexMediaPayload, PlexMediaQuery, TModel
+from plex.knowledge.types import (
+    DataPoint,
+    ExplainContext,
+    MediaResult,
+    MinMax,
+    PlexMediaPayload,
+    PlexMediaQuery,
+    TModel,
+)
 
 _LOGGER = logging.getLogger(__name__)
 _STOPWORDS = {
@@ -74,8 +91,7 @@ def sparse_from_text(text: str) -> SparseVector:
     index_to_val: dict[int, float] = {}
     for tok, tf in counts.items():
         h = (
-            int.from_bytes(hashlib.blake2b(tok.encode("utf-8"),
-                           digest_size=8).digest(), "little")
+            int.from_bytes(hashlib.blake2b(tok.encode("utf-8"), digest_size=8).digest(), "little")
             % 2147483647
         )
         val = 1.0 + math.log(tf)
@@ -106,35 +122,14 @@ async def ensure_collection(
     dim: int,
 ) -> None:
     """Create the collection if it doesn't exist, with dense + sparse vectors."""
-    _LOGGER.warning(
-        f"Ensuring collection '{name}' exists with {dim} dimensions.")
+    _LOGGER.warning(f"Ensuring collection '{name}' exists with {dim} dimensions.")
     collections = await client.get_collections()
     if any(c.name == name for c in collections.collections):
         return
-        # collection = await client.get_collection(name)
-        # if not collection.config.params.vectors:
-        #     recreate = True
-        # elif not isinstance(collection.config.params.vectors, dict):
-        #     recreate = True
-        # elif not collection.config.params.vectors.get("dense"):
-        #     recreate = True
-        # elif collection.config.params.vectors["dense"].size != dim:
-        #     recreate = True
-        # elif not collection.config.params.sparse_vectors:
-        #     recreate = True
-        # elif not isinstance(collection.config.params.sparse_vectors, dict):
-        #     recreate = True
-        # elif collection.config.params.sparse_vectors.get("sparse"):
-        #     recreate = True
-        # if not recreate:
-        #     return
-        # _LOGGER.warning(f"Deleting collection '{name}'")
-        # await client.delete_collection(name)
     _LOGGER.warning(f"Creating collection '{name}'")
     await client.create_collection(
         collection_name=name,
-        vectors_config={"dense": VectorParams(
-            size=dim, distance=Distance.COSINE)},
+        vectors_config={"dense": VectorParams(size=dim, distance=Distance.COSINE)},
         sparse_vectors_config={"sparse": SparseVectorParams()},
         on_disk_payload=True,
     )
@@ -236,8 +231,7 @@ def heuristic_rerank(
         base = float(getattr(dp, "score", 0.0) or 0.0)
         g = jaccard(getattr(q, "genres", None), getattr(item, "genres", None))
         c = jaccard(getattr(q, "actors", None), getattr(item, "actors", None))
-        d = jaccard(getattr(q, "directors", None),
-                    getattr(item, "directors", None))
+        d = jaccard(getattr(q, "directors", None), getattr(item, "directors", None))
         blend = 0.75 * base + 0.15 * g + 0.06 * c + 0.04 * d
         rescored.append((blend, dp))
     rescored.sort(key=lambda t: t[0], reverse=True)
@@ -268,8 +262,7 @@ def explain_match(q: PlexMediaQuery, item: PlexMediaPayload) -> Optional[str]:
         if common:
             reasons.append(f"cast overlap: {', '.join(common)}")
     if q.directors:
-        common = sorted(set(q.directors).intersection(
-            set(item.directors or [])))
+        common = sorted(set(q.directors).intersection(set(item.directors or [])))
         if common:
             reasons.append(f"director overlap: {', '.join(common)}")
     return ", ".join(reasons) or None
@@ -303,7 +296,7 @@ def title_shingles(title: Optional[str]) -> set[str]:
     # 3-gram shingles over tokens
     if len(tokens) < 3:
         return set(tokens)
-    return {" ".join(tokens[i: i + 3]) for i in range(len(tokens) - 2)}
+    return {" ".join(tokens[i : i + 3]) for i in range(len(tokens) - 2)}
 
 
 def sim_items(a: DataPoint[TModel], b: DataPoint[TModel]) -> float:
@@ -418,3 +411,338 @@ def fuse_two_pass(
         fused.append((score, by_id[pid]))
     fused.sort(key=lambda t: t[0], reverse=True)
     return [p for _, p in fused]
+
+
+def _to_set(xs: Optional[Iterable[str]]) -> set[str]:
+    return set(map(str.lower, xs or []))
+
+
+def _jaccard(a: Iterable[str], b: Iterable[str]) -> float:
+    A, B = _to_set(a), _to_set(b)
+    if not A and not B:
+        return 0.0
+    return len(A & B) / len(A | B)
+
+
+def _explain_condition(
+    payload: PlexMediaPayload, c: Condition | list[Condition]
+) -> Tuple[bool, str]:
+    """
+    Return (passed?, human_reason)
+    Supports MatchValue/MatchAny style (by presence of 'value' or 'any') and numeric/datetime ranges.
+    """
+    if isinstance(c, list):
+        response = []
+        for cond in c:
+            result = _explain_condition(payload, cond)
+            response.append(result[1])
+            if not result[0]:
+                return result
+        return True, f"~ Conditions Passed: {', '.join(response)}"
+    if not isinstance(c, FieldCondition):
+        raise TypeError(f"Expected FieldCondition, got {type(c).__name__}")
+    key = c.key
+    val = getattr(payload, key, payload.__dict__.get(key, None))
+
+    # match …
+    if c.match is not None:
+        match = c.match.model_dump(exclude_none=True, exclude_unset=True)
+        if "value" in match:
+            wanted = str(match["value"]).lower()
+            if isinstance(val, list):
+                ok = wanted in _to_set(val)
+            else:
+                ok = (str(val).lower() == wanted) if val is not None else False
+            return ok, f"{'✓' if ok else '✗'} {key} == {match['value']!r}"
+        if "any" in match:
+            wanted_any = _to_set(match["any"])
+            cand = _to_set(val if isinstance(val, list) else [val] if val is not None else [])
+            ok = bool(wanted_any & cand)
+            return ok, f"{'✓' if ok else '✗'} {key} intersects {sorted(wanted_any)}"
+        if "phrase" in match:
+            wanted_phrase = str(match["phrase"]).lower()
+            if isinstance(val, list):
+                ok = any(wanted_phrase in _to_set(v) for v in val)
+            else:
+                ok = (str(val).lower() == wanted_phrase) if val is not None else False
+            return ok, f"{'✓' if ok else '✗'} {key} contains {match['phrase']!r}"
+
+    # range …
+    if c.range is not None:
+        gte = c.range.gte
+        lte = c.range.lte
+        ok = True
+        pieces = []
+        if gte is not None:
+            ok &= val is not None and val >= gte
+            pieces.append(f">={gte!r}")
+        if lte is not None:
+            ok &= val is not None and val <= lte
+            pieces.append(f"<={lte!r}")
+        return (
+            ok,
+            f"{'✓' if ok else '✗'} {key} within {' & '.join(pieces) or 'range'} (got {val!r})",
+        )
+
+    # default fall-through
+    return True, f"~ {key} (unrecognized condition type; assumed pass)"
+
+
+def _explain_filter(name: str, f: Optional[Filter], payload: PlexMediaPayload) -> list[str]:
+    notes: list[str] = []
+    if not f:
+        return notes
+
+    if f.must:
+        results = [
+            _explain_condition(payload, c)
+            for c in (
+                None if f.must is None else (f.must if isinstance(f.must, list) else [f.must])
+            )
+            or []
+        ]
+        ok = all(x for x, _ in results)
+        notes.append(f"{'PASS' if ok else 'FAIL'} must: " + "; ".join(msg for _, msg in results))
+    if f.should:
+        results = [
+            _explain_condition(payload, c)
+            for c in (
+                None
+                if f.should is None
+                else (f.should if isinstance(f.should, list) else [f.should])
+            )
+            or []
+        ]
+        # should is advisory; count hits
+        hits = sum(1 for ok, _ in results if ok)
+        notes.append(
+            f"{hits}/{len(results)} should matched: " + "; ".join(msg for _, msg in results)
+        )
+    if f.must_not:
+        results = [
+            _explain_condition(payload, c)
+            for c in (
+                None
+                if f.must_not is None
+                else (f.must_not if isinstance(f.must_not, list) else [f.must_not])
+            )
+            or []
+        ]
+        # ok=True means it *hit* a must_not
+        violations = [msg for ok, msg in results if ok]
+        if violations:
+            notes.append("VIOLATED must_not: " + "; ".join(violations))
+        else:
+            notes.append("PASS must_not: none violated")
+    return notes
+
+
+def _overlap_against_seeds(item: PlexMediaPayload, seeds: Sequence[PlexMediaPayload]) -> list[str]:
+    if not seeds:
+        return []
+    msgs = []
+    # Compute max overlaps across seeds (simple and useful)
+
+    def max_j(field: str) -> Tuple[float, Optional[str]]:
+        best = 0.0
+        best_title = None
+        for s in seeds:
+            a = getattr(item, field, []) or []
+            b = getattr(s, field, []) or []
+            j = _jaccard(a, b)
+            if j > best:
+                best, best_title = j, s.title
+        return best, best_title
+
+    for field, label in [
+        ("genres", "genres"),
+        ("actors", "actors"),
+        ("directors", "directors"),
+        ("writers", "writers"),
+    ]:
+        j, with_title = max_j(field)
+        if j > 0:
+            msgs.append(f"{label} overlap J={j:.2f} vs seed “{with_title}”")
+    return msgs
+
+
+# --- Main explainer ----------------------------------------------------------
+
+
+def explain_match_from_context(
+    result: ScoredPoint,
+    p: PlexMediaPayload,
+    ctx: ExplainContext,
+) -> str:
+    lines: list[str] = []
+
+    # Header
+    lines.append(f"{p.title} ({p.year})  — score={result.score:.4f} [{ctx.score_interpretation}]")
+    lines.append(
+        f"type={p.type}  duration={p.duration_seconds}s  content_rating={p.content_rating or 'N/A'}"
+    )
+
+    # Prefetch filters applied (candidate set)
+    if ctx.prefetch and ctx.prefetch.filter:
+        notes = _explain_filter("prefetch", ctx.prefetch.filter, p)
+        if notes:
+            lines.append("• Prefetch filter: " + " | ".join(notes))
+    elif ctx.prefetch:
+        if ctx.prefetch.query:
+            lines.append("• Prefetch query present (vector/text)")
+
+    # Outer filter (if any)
+    if ctx.outer_filter:
+        notes = _explain_filter("outer", ctx.outer_filter, p)
+        if notes:
+            lines.append("• Outer filter: " + " | ".join(notes))
+
+    # Query kind
+    if ctx.query_kind == "recommend":
+        if ctx.positive_point_ids:
+            lines.append(f"• Ranked by similarity to positive IDs: {ctx.positive_point_ids}")
+        else:
+            lines.append("• Ranked by recommend() style query (no IDs listed)")
+    elif ctx.query_kind == "text":
+        lines.append(
+            f"• Ranked by text embedding: “{cast(Document, ctx.query).text if isinstance(ctx.query, Document) else ''}”"
+        )
+    elif ctx.query_kind == "vector":
+        lines.append("• Ranked by raw vector similarity")
+    else:
+        lines.append(f"• Ranked by: {ctx.query_kind}")
+
+    # Seed overlaps (if provided)
+    if ctx.seed_payloads:
+        overlaps = _overlap_against_seeds(p, ctx.seed_payloads)
+        if overlaps:
+            lines.append("• Overlap with seeds: " + " | ".join(overlaps))
+
+    # Content snippets that help LLM justify to users
+    # keep short to avoid turning this into a novel
+    if p.genres:
+        lines.append("• Genres: " + ", ".join(sorted(set(p.genres), key=str.lower)))
+    if p.actors:
+        lines.append(
+            "• Actors: "
+            + ", ".join(sorted(set(p.actors), key=str.lower)[:8])
+            + ("…" if len(p.actors) > 8 else "")
+        )
+    if p.directors:
+        lines.append("• Directors: " + ", ".join(sorted(set(p.directors), key=str.lower)))
+    if p.writers:
+        lines.append("• Writers: " + ", ".join(sorted(set(p.writers), key=str.lower)))
+
+    return "\n".join(lines)
+
+
+def point_to_media_result(
+    payload_class: Type[PlexMediaPayload],
+    p: ScoredPoint,
+    context: ExplainContext,
+) -> MediaResult:
+    """Convert a Qdrant search result to a standardized MediaResult.
+
+    Args:
+        p: Scored point from Qdrant search
+        why: Optional explanation of why this result matched
+
+    Returns:
+        MediaResult: Standardized result format for API responses
+    """
+    payload = PlexMediaPayload(**p.payload)  # type: ignore
+    item = payload_class.model_validate(payload)
+    series = payload.show_title
+    return MediaResult(
+        key=item.key,
+        result_type=item.type,
+        title=item.title,
+        year=item.year,
+        status=None,
+        series=series,
+        genres=item.genres,
+        actors=item.actors,
+        directors=item.directors,
+        writers=item.writers,
+        similar_media=[],
+        synopsis=item.summary,
+        content_rating=item.content_rating,
+        rating=item.rating,
+        why=explain_match_from_context(p, payload, context),
+    )
+
+
+def build_filters(
+    genres: Optional[list[str]] = None,
+    directors: Optional[list[str]] = None,
+    writers: Optional[list[str]] = None,
+    actors: Optional[list[str]] = None,
+    aired_date: Optional[MinMax[date | int]] = None,
+    series: Optional[str] = None,
+    season: Optional[list[int]] = None,
+    episode: Optional[list[int]] = None,
+    rating: Optional[MinMax[float]] = None,
+    watched: Optional[bool] = None,
+) -> Optional[Filter]:
+    musts: list[Condition] = []
+    # must_nots: list[Condition] = []
+    shoulds: list[Condition] = []
+    min_should: MinShould | None = None
+    if genres:
+        musts.extend(
+            [FieldCondition(key="genres", match=MatchValue(value=genre)) for genre in genres]
+        )
+    if directors:
+        musts.extend(
+            [
+                FieldCondition(key="directors", match=MatchValue(value=director))
+                for director in directors
+            ]
+        )
+    if writers:
+        musts.extend(
+            [FieldCondition(key="writers", match=MatchValue(value=writer)) for writer in writers]
+        )
+    if actors:
+        musts.extend(
+            [FieldCondition(key="actors", match=MatchValue(value=actor)) for actor in actors]
+        )
+    if aired_date:
+        after: date | None = None
+        before: date | None = None
+        if aired_date.minimum:
+            after = (
+                aired_date.minimum
+                if isinstance(aired_date.minimum, date)
+                else date.today() - timedelta(days=aired_date.minimum)
+            )
+        if aired_date.maximum:
+            before = (
+                aired_date.maximum
+                if isinstance(aired_date.maximum, date)
+                else date.today() - timedelta(days=aired_date.maximum)
+            )
+        if after or before:
+            musts.append(
+                FieldCondition(key="aired_date", range=DatetimeRange(gte=after, lte=before))
+            )
+    if series:
+        musts.append(FieldCondition(key="season", match=MatchValue(value=series)))
+    if season:
+        shoulds.extend([FieldCondition(key="season", match=MatchValue(value=e)) for e in season])
+    if episode:
+        shoulds.extend([FieldCondition(key="episode", match=MatchValue(value=e)) for e in episode])
+    if rating:
+        if rating.minimum:
+            musts.append(FieldCondition(key="rating", range=Range(gte=rating.minimum)))
+        if rating.maximum:
+            musts.append(FieldCondition(key="rating", range=Range(lte=rating.maximum)))
+    if watched:
+        musts.append(FieldCondition(key="watched", match=MatchValue(value=watched)))
+    if len(musts) == 0 and len(shoulds) == 0 and min_should is None:
+        return None
+    return Filter(
+        must=musts,
+        should=shoulds,
+        min_should=min_should,
+    )
