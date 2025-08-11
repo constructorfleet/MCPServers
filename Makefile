@@ -36,6 +36,9 @@ build-plex: build-base
 		--build-arg BASE_VERSION=$$BASE_VERSION \
 		-t $(PLEX_IMAGE):$$PLEX_VERSION \
 		-t $(PLEX_IMAGE):latest .
+	@BASE_VERSION=$$(grep '^version =' base/pyproject.toml | cut -d'"' -f2); \
+	PLEX_VERSION=$$(grep '^version =' plex/pyproject.toml | cut -d'"' -f2); \
+	echo "🎛 Building plex-services: $(PLEX_SERVICE_IMAGE):$$PLEX_VERSION"; \
 	docker build -f plex/Dockerfile.service \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BASE_VERSION=$$BASE_VERSION \
@@ -56,6 +59,7 @@ push-plex:
 	@PLEX_VERSION=$$(grep '^version =' plex/pyproject.toml | cut -d'"' -f2); \
 	docker push $(PLEX_IMAGE):$$PLEX_VERSION
 	docker push $(PLEX_IMAGE):latest
+	@PLEX_VERSION=$$(grep '^version =' plex/pyproject.toml | cut -d'"' -f2); \
 	docker push $(PLEX_SERVICE_IMAGE):$$PLEX_VERSION
 	docker push $(PLEX_SERVICE_IMAGE):latest
 

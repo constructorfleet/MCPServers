@@ -530,7 +530,7 @@ class PlexTextSearch:
             ],
             ratings=[
                 Rating(
-                    source=item.get("image").split(":")[1],
+                    source=item.get("image").split(":")[0],
                     type=item.get("type"),
                     score=item.get("value"),
                 )
