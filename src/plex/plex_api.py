@@ -542,7 +542,7 @@ class PlexTextSearch:
                 tvdb={guid['id'].split(':')[0]: guid['id'] for guid in item.get("Guid", [])}.get('tvdb'),
             ),
             collection=[
-                MediaCollection(**c["Collection"])
+                MediaCollection(**c)
                 for c in item.get("Collection", [])
             ]
                 if item.get("Collection", None) else None
