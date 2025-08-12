@@ -657,8 +657,8 @@ def point_to_media_result(
         series = payload.show_title
     elif payload.type == "movie":
         collection = payload.collection
-        if collection:
-            series = collection.tag
+        if collection and len(collection) > 0:
+            series = collection[0].tag
 
     return MediaResult(
         key=item.key,
