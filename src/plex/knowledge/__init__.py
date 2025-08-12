@@ -80,19 +80,27 @@ class KnowledgeBase:
         )
         self.model = model
         self._collection_cache: dict[str, Collection] = {}
-        self.enable_rerank: bool = os.environ.get("ENABLE_RERANK", "false") == "true"
-        self.reranker_name: Optional[str] = os.environ.get("RERANKER_NAME", None)
+        self.enable_rerank: bool = os.environ.get(
+            "ENABLE_RERANK", "false") == "true"
+        self.reranker_name: Optional[str] = os.environ.get(
+            "RERANKER_NAME", None)
         self.enable_two_pass_fusion: bool = (
             os.environ.get("ENABLE_TWO_PASS_FUSION", "false") == "true"
         )
-        self.fusion_dense_weight: float = float(os.environ.get("FUSION_DENSE_WEIGHT", "0.7"))
-        self.fusion_sparse_weight: float = float(os.environ.get("FUSION_SPARSE_WEIGHT", "0.3"))
-        self.fusion_prelimit: int = int(os.environ.get("FUSION_PRELIMIT", "200"))
-        self.enable_server_fusion: bool = os.environ.get("ENABLE_SERVER_FUSION", "false") == "true"
+        self.fusion_dense_weight: float = float(
+            os.environ.get("FUSION_DENSE_WEIGHT", "0.7"))
+        self.fusion_sparse_weight: float = float(
+            os.environ.get("FUSION_SPARSE_WEIGHT", "0.3"))
+        self.fusion_prelimit: int = int(
+            os.environ.get("FUSION_PRELIMIT", "200"))
+        self.enable_server_fusion: bool = os.environ.get(
+            "ENABLE_SERVER_FUSION", "false") == "true"
         # only rrf supported currently
         self.server_fusion_method: Literal["rrf"] = "rrf"
-        self.enable_diversity: bool = os.environ.get("ENABLE_DIVERSITY", "false") == "true"
-        self.diversity_lambda: float = float(os.environ.get("DIVERSITY_LAMBDA", "0.3"))
+        self.enable_diversity: bool = os.environ.get(
+            "ENABLE_DIVERSITY", "false") == "true"
+        self.diversity_lambda: float = float(
+            os.environ.get("DIVERSITY_LAMBDA", "0.3"))
         # cap results per series/franchise
         self.max_per_series: int = int(os.environ.get("MAX_PER_SERIES", "1"))
         _LOGGER.error(self.qdrant_client.get_embedding_size(self.model))
@@ -103,7 +111,8 @@ class KnowledgeBase:
     def document(self, doc: str | PlexMediaQuery | PlexMediaPayload) -> Document:
         """Create a document representation of the knowledge base."""
         return Document(
-            text=doc if isinstance(doc, str) else PlexMediaPayload.document(doc),
+            text=doc if isinstance(
+                doc, str) else PlexMediaPayload.document(doc),
             model=self.model,
             options={"cuda": True},
         )
@@ -115,7 +124,8 @@ class KnowledgeBase:
             dim: Dimension of the dense vector embeddings
         """
         await ensure_collection(
-            self.qdrant_client, "movies", dim or self.qdrant_client.get_embedding_size(self.model)
+            self.qdrant_client, "movies", dim or self.qdrant_client.get_embedding_size(
+                self.model)
         )
         await ensure_payload_indexes(self.qdrant_client, "movies")
         collection = await self._fetch_collection(
@@ -132,7 +142,8 @@ class KnowledgeBase:
             dim: Dimension of the dense vector embeddings
         """
         await ensure_collection(
-            self.qdrant_client, "episodes", dim or self.qdrant_client.get_embedding_size(self.model)
+            self.qdrant_client, "episodes", dim or self.qdrant_client.get_embedding_size(
+                self.model)
         )
         await ensure_payload_indexes(self.qdrant_client, "episodes")
         collection = await self._fetch_collection(
@@ -149,7 +160,8 @@ class KnowledgeBase:
             dim: Dimension of the dense vector embeddings
         """
         await ensure_collection(
-            self.qdrant_client, "media", dim or self.qdrant_client.get_embedding_size(self.model)
+            self.qdrant_client, "media", dim or self.qdrant_client.get_embedding_size(
+                self.model)
         )
         await ensure_payload_indexes(self.qdrant_client, "media")
         collection = await self._fetch_collection(
@@ -265,35 +277,43 @@ class KnowledgeBase:
             if filters.genres:
                 musts.extend(
                     [
-                        FieldCondition(key="genres", match=MatchValue(value=genre.title()))
+                        FieldCondition(
+                            key="genres", match=MatchValue(value=genre.title()))
                         for genre in filters.genres
                     ]
                 )
             if filters.directors:
                 musts.extend(
                     [
-                        FieldCondition(key="directors", match=MatchValue(value=director.title()))
+                        FieldCondition(key="directors", match=MatchValue(
+                            value=director.title()))
                         for director in filters.directors
                     ]
                 )
             if filters.writers:
                 musts.extend(
                     [
-                        FieldCondition(key="writers", match=MatchValue(value=writer.title()))
+                        FieldCondition(key="writers", match=MatchValue(
+                            value=writer.title()))
                         for writer in filters.writers
                     ]
                 )
             if filters.title:
-                musts.append(FieldCondition(key="title", match=MatchText(text=filters.title)))
+                musts.append(FieldCondition(
+                    key="title", match=MatchText(text=filters.title)))
             if filters.summary:
-                musts.append(FieldCondition(key="summary", match=MatchText(text=filters.summary)))
+                musts.append(FieldCondition(
+                    key="summary", match=MatchText(text=filters.summary)))
             if filters.season:
-                musts.append(FieldCondition(key="season", match=MatchValue(value=filters.season)))
+                musts.append(FieldCondition(
+                    key="season", match=MatchValue(value=filters.season)))
             if filters.episode:
-                musts.append(FieldCondition(key="episode", match=MatchValue(value=filters.episode)))
+                musts.append(FieldCondition(
+                    key="episode", match=MatchValue(value=filters.episode)))
             if filters.show_title:
                 musts.append(
-                    FieldCondition(key="show_title", match=MatchText(text=filters.show_title))
+                    FieldCondition(key="show_title", match=MatchText(
+                        text=filters.show_title))
                 )
             _LOGGER.info(
                 f'Filtering points with conditions: {json.dumps({
@@ -309,7 +329,8 @@ class KnowledgeBase:
                 using="dense",
                 limit=100,
             )
-            _LOGGER.info(f"Found {len(result.points)} points matching the query and filters.")
+            _LOGGER.info(
+                f"Found {len(result.points)} points matching the query and filters.")
             _LOGGER.info(json.dumps(result.model_dump(), indent=2))
             return [
                 DataPoint(payload_class=PlexMediaPayload, **p.model_dump()) for p in result.points
@@ -470,9 +491,11 @@ class KnowledgeBase:
                 if collection in ["movie", "episode"]:
                     collection = str(media_type) + "s"
                 else:
-                    raise ValueError("media_type must be 'movies' or 'episodes'")
+                    raise ValueError(
+                        "media_type must be 'movies' or 'episodes'")
             query_filter: Filter | None = None
             context = ExplainContext()
+            query = ""
             if query_filter := build_filters(
                 genres=with_genre,
                 directors=directed_by,
@@ -489,7 +512,6 @@ class KnowledgeBase:
                 watched=watched,
             ):
                 context.outer_filter = query_filter
-                context.prefetch = Prefetch(filter=query_filter)
 
             if similar_to:
                 if theme_or_story:
@@ -507,7 +529,8 @@ class KnowledgeBase:
                 if context.positive_point_ids:
                     context.query = RecommendQuery(
                         recommend=RecommendInput(
-                            positive=cast(list[VectorInput], context.positive_point_ids)
+                            positive=cast(list[VectorInput],
+                                          context.positive_point_ids)
                         )
                     )
                     if context.outer_filter:
@@ -540,6 +563,8 @@ class KnowledgeBase:
                                 )
                             ]
                         )
+                else:
+                    query = similar_to
             elif theme_or_story:
                 context.query = KnowledgeBase.instance().document(theme_or_story)
 
@@ -549,6 +574,9 @@ class KnowledgeBase:
                     query=sparse_from_text(summary),
                     using="sparse",
                 )
+                query = query + " " + summary
+
+            context.query = KnowledgeBase.instance().document(query)
 
             _LOGGER.info(
                 f'Filtering points with conditions: {json.dumps({
@@ -572,7 +600,8 @@ class KnowledgeBase:
                 with_payload=True,
             )
 
-            _LOGGER.info(f"Found {len(results.points)} points matching the query and filters.")
+            _LOGGER.info(
+                f"Found {len(results.points)} points matching the query and filters.")
             _LOGGER.info(json.dumps(results.model_dump(), indent=2))
             must = cast(
                 list[Condition],
@@ -593,7 +622,8 @@ class KnowledgeBase:
                 diagnostics=Diagnostics(
                     retrieval=Retrieval(dense_weight=1.0, sparse_weight=0.0),
                     reranker=None,
-                    filters_applied=len(must or []) > 0 or len(should or []) > 0,
+                    filters_applied=len(must or []) > 0 or len(
+                        should or []) > 0,
                     fallback_used=context.query is not None,
                 ),
             )
