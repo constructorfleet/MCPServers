@@ -74,7 +74,7 @@ class PlexMediaPayload(BaseModel):
     reviews: Optional[list[Review]] = None
     ratings: Optional[list[Rating]] = None
     services: Optional[Services] = None
-    collection: Optional[MediaCollection] = None
+    collection: Optional[list[MediaCollection]] = None
 
     @classmethod
     def document(cls, item: "PlexMediaPayload") -> str:

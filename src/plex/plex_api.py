@@ -541,7 +541,11 @@ class PlexTextSearch:
                 imdb={guid['id'].split(':')[0]: guid['id'] for guid in item.get("Guid", [])}.get('imdb'),
                 tvdb={guid['id'].split(':')[0]: guid['id'] for guid in item.get("Guid", [])}.get('tvdb'),
             ),
-            collection=MediaCollection(**item["Collection"]) if item.get("Collection", None) else None
+            collection=[
+                MediaCollection(**c["Collection"])
+                for c in item.get("Collection", [])
+            ]
+                if item.get("Collection", None) else None
         )
 
     async def schedule_load_items(self, sleep: int = 60):

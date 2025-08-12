@@ -1,24 +1,7 @@
-FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends software-properties-common curl gnupg lsb-release && \
-    add-apt-repository ppa:deadsnakes/ppa -y && \
-    apt-get update && apt-get install -y --no-install-recommends python3.12 python3.12-venv python3.12-dev && \
-    ln -sf /usr/bin/python3.12 /usr/bin/python3
+ARG PLEX_BASE_VERSION
+FROM ghcr.io/constructorfleet/mcp-plex:${PLEX_BASE_VERSION}
 
 WORKDIR /app
-COPY --from=ghcr.io/astral-sh/uv:0.7.21 /uv /uvx /bin/
-
-COPY ./base ./base
-COPY ./src ./src
-COPY ./plex ./plex
-
-RUN uv venv .venv && \
-    . /app/.venv/bin/activate && \
-    cd base && \
-    uv sync --active
-
-ENV PATH="/app/.venv/bin:$PATH"
 
 ENTRYPOINT ["/app/plex/entrypoint.service.sh"]
 
@@ -27,8 +10,3 @@ ENV PLEX_TOKEN=
 ENV PLEX_URL=
 # ENV MCP_EXTRA_ARGS="--plex-token $$PLEX_TOKEN --plex-url $$PLEX_URL"
 ENV PROJECT_ROOT="/app"
-
-RUN uv venv .venv && \
-    . /app/.venv/bin/activate && \
-    cd plex && \
-    uv sync --active
