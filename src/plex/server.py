@@ -14,6 +14,7 @@ import os
 from enum import StrEnum
 
 # --- Import Statements ---
+from random import randint
 from typing import Annotated, Callable, List, Literal, Optional
 
 from mcp.types import ToolAnnotations
@@ -354,7 +355,7 @@ async def play_media_on_client(
         )
         if not media:
             return f"No media found with title {media_title}."
-        await asyncio.to_thread(client.playMedia, media)
+        await asyncio.to_thread(client.playMedia, media[randint(0, len(media) - 1)])
         return f"Playing {media.title} on {client.title}."  # type: ignore
     except Exception as e:
         logger.exception("Failed to play media on client.")
