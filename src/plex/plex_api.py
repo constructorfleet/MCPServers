@@ -15,7 +15,6 @@ from typing import (
     cast,
     get_type_hints,
 )
-from urllib import parse
 
 import httpx
 from plexapi.client import PlexClient
@@ -40,62 +39,67 @@ def parse_plex_payload(payload: dict) -> PlexMediaPayload:
         PlexMediaPayload: The parsed PlexMediaPayload object.
     """
     return PlexMediaPayload(
-            key=int(payload.get("ratingKey", "")),
-            title=payload.get("title", ""),
-            summary=payload.get("summary", ""),
-            genres=([g["tag"] for g in payload.get("Genre", [])] if payload.get("Genre") else []),
-            directors=(
-                [d["tag"] for d in payload.get("Director", [])] if payload.get("Director") else []
+        key=int(payload.get("ratingKey", "")),
+        title=payload.get("title", ""),
+        summary=payload.get("summary", ""),
+        genres=([g["tag"] for g in payload.get("Genre", [])] if payload.get("Genre") else []),
+        directors=(
+            [d["tag"] for d in payload.get("Director", [])] if payload.get("Director") else []
+        ),
+        actors=([a["tag"] for a in payload.get("Role", [])] if payload.get("Role") else []),
+        writers=([w["tag"] for w in payload.get("Writer", [])] if payload.get("Writer") else []),
+        producers=(
+            [p["tag"] for p in payload.get("Producer", [])] if payload.get("Producer") else []
+        ),
+        year=payload["year"] if payload.get("year", None) is not None else 0,
+        studio=payload.get("studio", ""),
+        rating=float(payload.get("rating", 0.0)) * 10 if payload.get("rating") else 0.0,
+        content_rating=payload.get("contentRating"),
+        type=payload.get("type", ""),
+        watched=payload.get("viewCount", 0) > 0,
+        duration_seconds=int(payload.get("duration", 0)),
+        show_title=payload.get("grandparentTitle"),
+        season=payload.get("parentIndex") if payload.get("parentTitle") else None,
+        episode=payload.get("index") if payload.get("index") else None,
+        air_date=(
+            date.fromisoformat(str(payload.get("originallyAvailableAt")))
+            if isinstance(payload.get("originallyAvailableAt"), str)
+            else payload.get("originallyAvailableAt")
+        ),
+        reviews=[
+            Review(
+                reviewer=item.get("tag"),
+                text=item.get("text"),
+                key=item.get("id"),
+            )
+            for item in payload.get("Review", [])
+        ],
+        ratings=[
+            Rating(
+                source=item.get("image").split(":")[0],
+                type=item.get("type"),
+                score=item.get("value"),
+            )
+            for item in payload.get("Rating", [])
+        ],
+        services=Services(
+            tmdb={guid["id"].split(":")[0]: guid["id"] for guid in payload.get("Guid", [])}.get(
+                "tmdb"
             ),
-            actors=([a["tag"] for a in payload.get("Role", [])] if payload.get("Role") else []),
-            writers=(
-                [w["tag"] for w in payload.get("Writer", [])] if payload.get("Writer") else []
+            imdb={guid["id"].split(":")[0]: guid["id"] for guid in payload.get("Guid", [])}.get(
+                "imdb"
             ),
-            producers=(
-                [p["tag"] for p in payload.get("Producer", [])] if payload.get("Producer") else []
+            tvdb={guid["id"].split(":")[0]: guid["id"] for guid in payload.get("Guid", [])}.get(
+                "tvdb"
             ),
-            year=payload["year"] if payload.get("year", None) is not None else 0,
-            studio=payload.get("studio", ""),
-            rating=float(payload.get("rating", 0.0)) * 10 if payload.get("rating") else 0.0,
-            content_rating=payload.get("contentRating"),
-            type=payload.get("type", ""),
-            watched=payload.get("viewCount", 0) > 0,
-            duration_seconds=int(payload.get("duration", 0)),
-            show_title=payload.get("grandparentTitle"),
-            season=payload.get("parentIndex") if payload.get("parentTitle") else None,
-            episode=payload.get("index") if payload.get("index") else None,
-            air_date=(
-                date.fromisoformat(str(payload.get("originallyAvailableAt")))
-                if isinstance(payload.get("originallyAvailableAt"), str)
-                else payload.get("originallyAvailableAt")
-            ),
-            reviews=[
-                Review(
-                    reviewer=item.get("tag"),
-                    text=item.get("text"),
-                    key=item.get("id"),
-                )
-                for item in payload.get("Review", [])
-            ],
-            ratings=[
-                Rating(
-                    source=item.get("image").split(":")[0],
-                    type=item.get("type"),
-                    score=item.get("value"),
-                )
-                for item in payload.get("Rating", [])
-            ],
-            services=Services(
-                tmdb={guid['id'].split(':')[0]: guid['id'] for guid in payload.get("Guid", [])}.get('tmdb'),
-                imdb={guid['id'].split(':')[0]: guid['id'] for guid in payload.get("Guid", [])}.get('imdb'),
-                tvdb={guid['id'].split(':')[0]: guid['id'] for guid in payload.get("Guid", [])}.get('tvdb'),
-            ),
-            collection=[
-                MediaCollection(**c)
-                for c in payload.get("Collection", [])
-            ]
-                if payload.get("Collection", None) else None
+        ),
+        collection=(
+            [MediaCollection(**c) for c in payload.get("Collection", [])]
+            if payload.get("Collection", None)
+            else None
+        ),
     )
+
 
 class Command:
 
@@ -295,7 +299,7 @@ class PlexAPI:
             timeout=httpx.Timeout(1000.0, read=3600.0),
         )
         self.server = PlexServer(base_url, token)
-        
+
     async def close(self):
         await self.client.aclose()
 
@@ -408,9 +412,7 @@ class PlexAPI:
             if data.get("MediaContainer", {}).get("Metadata")
             else []
         )
-        return [
-            parse_plex_payload(item) for item in media
-        ]
+        return [parse_plex_payload(item) for item in media]
 
     async def get_all_seasons(
         self, section_id: int | None = None, **kwargs: Unpack[SearchParameters]
@@ -478,7 +480,7 @@ class PlexTextSearch:
         self.knowledge_base = knowledge_base
         self._loaded = False
         self._media: Collection[PlexMediaPayload]
-        
+
     async def close(self):
         await self.knowledge_base.close()
 
@@ -499,13 +501,16 @@ class PlexTextSearch:
             *[self.plex.get_library_section_contents(int(section["key"])) for section in sections]
         )
         _LOGGER.info("Loading details...")
-        results = await batch_map([
-            item["ratingKey"] for item in list(itertools.chain.from_iterable(all_payloads))
-        ], self._load_details, batch_size=50, concurrency=10, return_exceptions=False)
-        items.extend([
-            item
-            for item in results if item is not None and isinstance(item, PlexMediaPayload)
-        ])
+        results = await batch_map(
+            [item["ratingKey"] for item in list(itertools.chain.from_iterable(all_payloads))],
+            self._load_details,
+            batch_size=50,
+            concurrency=10,
+            return_exceptions=False,
+        )
+        items.extend(
+            [item for item in results if item is not None and isinstance(item, PlexMediaPayload)]
+        )
 
         await self._do_upload(items)
         self._loaded = True
@@ -517,9 +522,7 @@ class PlexTextSearch:
         episode_collection = await self.knowledge_base.ensure_episodes()
         media: Sequence[PlexMediaPayload] = [point for point in items if point.type == "media"]
         movies: Sequence[PlexMediaPayload] = [point for point in items if point.type == "movie"]
-        episodes: Sequence[PlexMediaPayload] = [
-            point for point in items if  point.type == "episode"
-        ]
+        episodes: Sequence[PlexMediaPayload] = [point for point in items if point.type == "episode"]
         if movie_collection:
             _LOGGER.info("Upserting %d items into movie collection", len(movies))
             await movie_collection.upsert_data(
