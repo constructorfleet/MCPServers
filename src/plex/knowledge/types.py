@@ -1,14 +1,14 @@
 from datetime import date
 from enum import StrEnum
-from typing import Annotated, Any, Generic, List, Literal, Optional, Type, TypeVar
+from typing import Annotated, Any, Generic, List, Literal, Optional, Sequence, Type, TypeVar
 
 from pydantic import BaseModel, Field
 from qdrant_client.models import (
     Filter,
+    ExtendedPointId,
     Prefetch,
     QueryInterface,
     ScoredPoint,
-    VectorInput,
 )
 
 MediaType = Literal["movie"] | Literal["episode"]
@@ -30,13 +30,13 @@ class Rating(BaseModel):
     source: str
     type: str
     score: float
-    
+
 
 class Services(BaseModel):
     tmdb: Optional[str] = None
     imdb: Optional[str] = None
     tvdb: Optional[str] = None
-    
+
 
 class MediaCollection(BaseModel):
     id: int
@@ -646,8 +646,8 @@ class ExplainContext(BaseModel):
     outer_filter: Optional[Filter] = None
     query_kind: str = "vector"  # "recommend" | "text" | "vector"
     query: Optional[QueryInterface] = None
-    positive_point_ids: list[VectorInput] = []
+    positive_point_ids: Sequence[ExtendedPointId] = []
     # optional: seed payloads to compute overlap against
-    seed_payloads: list[PlexMediaPayload] = []
+    seed_payloads: Sequence[PlexMediaPayload] = []
     # distance or similarity? (Qdrant returns "score" that depends on distance/sim metric)
     score_interpretation: str = "similarity"  # or "distance"

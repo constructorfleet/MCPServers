@@ -17,8 +17,9 @@ from qdrant_client.models import (
     RecommendQuery,
     Prefetch,
     MatchText,
-    MatchPhrase,
+    MatchAny,
     MatchValue,
+    VectorInput,
 )
 
 from plex.knowledge.collection import Collection
@@ -284,9 +285,7 @@ class KnowledgeBase:
             if filters.title:
                 musts.append(FieldCondition(key="title", match=MatchText(text=filters.title)))
             if filters.summary:
-                musts.append(
-                    FieldCondition(key="summary", match=MatchText(text=filters.summary))
-                )
+                musts.append(FieldCondition(key="summary", match=MatchText(text=filters.summary)))
             if filters.season:
                 musts.append(FieldCondition(key="season", match=MatchValue(value=filters.season)))
             if filters.episode:
@@ -511,9 +510,20 @@ class KnowledgeBase:
                         collection, filters=PlexMediaQuery(title=similar_to)
                     )
                 ]
-                context.query = RecommendQuery(
-                    recommend=RecommendInput(positive=context.positive_point_ids)
-                )
+                if context.positive_point_ids:
+                    context.query = RecommendQuery(
+                        recommend=RecommendInput(
+                            positive=cast(list[VectorInput], context.positive_point_ids)
+                        )
+                    )
+                    context.outer_filter = Filter(
+                        must_not=[
+                            FieldCondition(
+                                key="key",
+                                match=MatchValue(value=context.positive_point_ids[0]),
+                            )
+                        ]
+                    )
             elif full_text_query:
                 context.query = KnowledgeBase.instance().document(full_text_query)
 
@@ -530,7 +540,7 @@ class KnowledgeBase:
                     "prefetch": context.prefetch.model_dump() if context.prefetch else None,
                     "query": context.query.model_dump() if context.query and isinstance(context.query, BaseModel) else None,
                     "using": "dense",
-                    "limit": (limit if limit is not None else 1000),
+                    "limit": (limit if limit is not None else 10),
                     "offset": (offset if offset is not None else None),
                     "with_payload": True,
                 }, indent=2)}'
@@ -541,7 +551,7 @@ class KnowledgeBase:
                 prefetch=context.prefetch,
                 query=context.query,
                 using="dense",
-                limit=(limit if limit is not None else 1000),
+                limit=(limit if limit is not None else 10),
                 offset=(offset if offset is not None else None),
                 with_payload=True,
             )
