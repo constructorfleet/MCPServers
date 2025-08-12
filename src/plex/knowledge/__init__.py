@@ -263,26 +263,26 @@ class KnowledgeBase:
             if filters.genres:
                 musts.extend(
                     [
-                        FieldCondition(key="genres", match=MatchValue(value=genre))
+                        FieldCondition(key="genres", match=MatchValue(value=genre.title()))
                         for genre in filters.genres
                     ]
                 )
             if filters.directors:
                 musts.extend(
                     [
-                        FieldCondition(key="directors", match=MatchValue(value=director))
+                        FieldCondition(key="directors", match=MatchValue(value=director.title()))
                         for director in filters.directors
                     ]
                 )
             if filters.writers:
                 musts.extend(
                     [
-                        FieldCondition(key="writers", match=MatchValue(value=writer))
+                        FieldCondition(key="writers", match=MatchValue(value=writer.title()))
                         for writer in filters.writers
                     ]
                 )
             if filters.title:
-                musts.append(FieldCondition(key="title", match=MatchValue(value=filters.title)))
+                musts.append(FieldCondition(key="title", match=MatchText(text=filters.title)))
             if filters.summary:
                 musts.append(
                     FieldCondition(key="summary", match=MatchText(text=filters.summary))
@@ -293,7 +293,7 @@ class KnowledgeBase:
                 musts.append(FieldCondition(key="episode", match=MatchValue(value=filters.episode)))
             if filters.show_title:
                 musts.append(
-                    FieldCondition(key="show_title", match=MatchValue(value=filters.show_title))
+                    FieldCondition(key="show_title", match=MatchText(text=filters.show_title))
                 )
             _LOGGER.info(
                 f'Filtering points with conditions: {json.dumps({
