@@ -478,12 +478,12 @@ class KnowledgeBase:
                     description="Query for the number of results to skip.",
                 ),
             ] = None,
-            full_text_query: Annotated[
+            theme_or_story: Annotated[
                 Optional[str],
                 Field(
                     default=None,
-                    title="Full Text Query",
-                    description="Generic full-text, natural language request for vague prompts.",
+                    title="Theme or story",
+                    description="Query based on theme, story or other vague characteristics.",
                     examples=[
                         "What's that episode where a journalist, an artist, a musician are invited to a billionaire's house and there's a meteor at the end?"
                     ],
@@ -519,10 +519,10 @@ class KnowledgeBase:
                 context.prefetch = Prefetch(filter=query_filter)
 
             if similar_to:
-                if full_text_query:
+                if theme_or_story:
                     context.prefetch = Prefetch(
                         prefetch=context.prefetch,
-                        query=KnowledgeBase.instance().document(full_text_query),
+                        query=KnowledgeBase.instance().document(theme_or_story),
                     )
                 context.query_kind = "similar"
                 context.positive_point_ids = [
@@ -570,8 +570,8 @@ class KnowledgeBase:
                                 )
                             ]
                         )
-            elif full_text_query:
-                context.query = KnowledgeBase.instance().document(full_text_query)
+            elif theme_or_story:
+                context.query = KnowledgeBase.instance().document(theme_or_story)
 
             if summary:
                 context.prefetch = Prefetch(
