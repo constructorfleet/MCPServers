@@ -23,7 +23,7 @@ from plexapi.exceptions import NotFound
 from pydantic import Field
 from rapidfuzz import process
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import Response, JSONResponse
 
 from base import mcp, run_server
 from plex.common import add_args, check_args
@@ -139,7 +139,8 @@ async def get_movie_details(
     except NotFound:
         return f"ERROR: Movie with key {movie_key} not found."
     except Exception as e:
-        logger.exception("Failed to fetch movie details for key '%s'", movie_key)
+        logger.exception(
+            "Failed to fetch movie details for key '%s'", movie_key)
         return f"ERROR: Failed to fetch movie details. {str(e)}"
 
 
@@ -275,7 +276,8 @@ async def get_active_clients(
 
         if not clients and not sessions:
             return "No active clients connected to your Plex server."
-        logger.info("Found %d active clients and %d sessions.", len(clients), len(sessions))
+        logger.info("Found %d active clients and %d sessions.",
+                    len(clients), len(sessions))
         results: List[str] = []
         for i, m in enumerate(clients):
             logger.info(f"Client {m.title} {m.protocolCapabilities}")
@@ -292,13 +294,6 @@ async def get_active_clients(
         return f"ERROR: Failed to fetch client list. {str(e)}"
 
 
-@mcp.tool(
-    name="play_media",
-    description="Play a movie or tv show on a given Plex client.",
-    annotations=ToolAnnotations(
-        title="Play Media on Client",
-    ),
-)
 async def play_media_on_client(
     client_name: Annotated[
         str,
@@ -364,6 +359,60 @@ async def play_media_on_client(
     except Exception as e:
         logger.exception("Failed to play media on client.")
         return f"ERROR: Failed to play media on client. {str(e)}"
+
+
+@mcp.custom_route(
+    "/play_media_on_client",
+    methods=["POST"],
+)
+async def play_media_on_client_handler(request: Request):
+    data = await request.json()
+    client_name = data.get("client_name")
+    media_title = data.get("media_title")
+    media_type = data.get("media_type")
+    result = await play_media_on_client(client_name, media_title, media_type)
+    return JSONResponse(content={"result": result})
+
+
+@mcp.tool(
+    name="play_media",
+    description="Play a movie or tv show on a given Plex client.",
+    annotations=ToolAnnotations(
+        title="Play Media on Client",
+    ),
+)
+async def play_media_on_client_tool(
+    client_name: Annotated[
+        str,
+        Field(
+            description="The name of the client to start the playback.",
+            examples=["movie room", "living room tv"],
+        ),
+    ],
+    media_title: Annotated[
+        str,
+        Field(
+            description="The title of the media item to play.",
+            examples=["Inception", "The Matrix"],
+        ),
+    ],
+    media_type: Annotated[
+        Optional[Literal["movie"] | Literal["episode"]],
+        Field(
+            description="The type of media to play when searching by title. (movie or episode)",
+            examples=["movie", "episode"],
+        ),
+    ] = None,
+) -> str:
+    """
+    Play specified media on a given Plex client.
+    Parameters:
+        machine_identifier: The machine identifier of the Plex client.
+        media_key: The key of the media item to play.
+    Returns:
+        A success message or an error message.
+    """
+    return await play_media_on_client(client_name, media_title, media_type)
 
 
 class MediaCommand(StrEnum):
@@ -446,12 +495,14 @@ async def control_client_playback(
         return f"ERROR: Could not retrieve client. {str(e)}"
 
     if "playback" not in client.protocolCapabilities:
-        logger.info("Client '%s' does not support playback control.", client.title)
+        logger.info(
+            "Client '%s' does not support playback control.", client.title)
         return f"ERROR: Client '{client.title}' does not support playback control."
 
     try:
         command_enum = MediaCommand(command)
-        logger.info("Sending command '%s' to client '%s'.", command_enum, client.title)
+        logger.info("Sending command '%s' to client '%s'.",
+                    command_enum, client.title)
         if command_enum == MediaCommand.SEEK and seek_position is not None:
             client.seekTo(seek_position * 1000)
         if command_enum == MediaCommand.START_OVER:
@@ -623,7 +674,8 @@ async def set_client_subtitles(
             return f"Subtitles disabled on client '{client.title}'."
         if not isinstance(source, list):
             source = [source]
-        logger.info("Found %d media items in session on client '%s'.", len(source), client.title)
+        logger.info("Found %d media items in session on client '%s'.",
+                    len(source), client.title)
         if not source:
             return f"ERROR: No media items found for session on client '{client.title}'."
         for _, item in enumerate(source):
@@ -646,10 +698,12 @@ async def set_client_subtitles(
                         return f"Subtitles enabled on client '{client.title}'."
         return f"ERROR: No English subtitles found for current media on client '{client.title}'."
     except NotFound:
-        logger.info("Client with machine identifier '%s' not found.", machine_identifier)
+        logger.info("Client with machine identifier '%s' not found.",
+                    machine_identifier)
         return f"ERROR: Client with machine identifier '{machine_identifier}' not found."
     except Exception as e:
-        logger.exception("Failed to set subtitles on client '%s'.", machine_identifier)
+        logger.exception(
+            "Failed to set subtitles on client '%s'.", machine_identifier)
         return f"ERROR: Could not set subtitles on client. {str(e)}"
 
 
@@ -697,14 +751,16 @@ async def on_run_server(args):
     global plex_api, plex_search
     plex_api = PlexAPI(os.environ["PLEX_SERVER_URL"], os.environ["PLEX_TOKEN"])
     knowledge_base = KnowledgeBase(
-        os.environ["MODEL_NAME"], os.environ["QDRANT_HOST"], int(os.environ["QDRANT_PORT"])
+        os.environ["MODEL_NAME"], os.environ["QDRANT_HOST"], int(
+            os.environ["QDRANT_PORT"])
     )
     plex_search = PlexTextSearch(
         plex_api,
         knowledge_base,
     )
     knowledge_base.find_media_tool(mcp)
-    logger.info("Connected to Plex server at %s", os.environ["PLEX_SERVER_URL"])
+    logger.info("Connected to Plex server at %s",
+                os.environ["PLEX_SERVER_URL"])
 
 
 def main():
