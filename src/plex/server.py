@@ -26,6 +26,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from base import mcp, run_server
+from plex import knowledge
 from plex.common import add_args, check_args
 from plex.format import (
     format_client,
@@ -738,13 +739,15 @@ async def on_run_server(args):
 
     global plex_api, plex_search
     plex_api = PlexAPI(os.environ["PLEX_SERVER_URL"], os.environ["PLEX_TOKEN"])
+    knowledge_base = KnowledgeBase(
+        os.environ["MODEL_NAME"], os.environ["QDRANT_HOST"], int(
+            os.environ["QDRANT_PORT"])
+    )
     plex_search = PlexTextSearch(
         plex_api,
-        KnowledgeBase(
-            os.environ["MODEL_NAME"], os.environ["QDRANT_HOST"], int(
-                os.environ["QDRANT_PORT"])
-        ),
+        knowledge_base,
     )
+    knowledge_base.find_media_tool(mcp)
     logger.info("Connected to Plex server at %s",
                 os.environ["PLEX_SERVER_URL"])
 
