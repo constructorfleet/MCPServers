@@ -1,8 +1,8 @@
 import json
+import logging
 import os
 from datetime import date
-from typing import Annotated, Callable, Literal, Optional, Type, cast
-import logging
+from typing import Annotated, Callable, Literal, Optional, Type, Union, cast
 
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
@@ -13,12 +13,12 @@ from qdrant_client.models import (
     Document,
     FieldCondition,
     Filter,
+    MatchAny,
+    MatchText,
+    MatchValue,
+    Prefetch,
     RecommendInput,
     RecommendQuery,
-    Prefetch,
-    MatchText,
-    MatchAny,
-    MatchValue,
     VectorInput,
 )
 
@@ -339,7 +339,7 @@ class KnowledgeBase:
                 ),
             ] = None,
             with_genre: Annotated[
-                Optional[list[str]],
+                Optional[list[str] | str],
                 Field(
                     default=None,
                     title="Genres",
@@ -347,7 +347,7 @@ class KnowledgeBase:
                 ),
             ] = None,
             directed_by: Annotated[
-                Optional[list[str]],
+                Optional[list[str] | str],
                 Field(
                     default=None,
                     title="Directors",
@@ -355,7 +355,7 @@ class KnowledgeBase:
                 ),
             ] = None,
             written_by: Annotated[
-                Optional[list[str]],
+                Optional[list[str] | str],
                 Field(
                     default=None,
                     title="Writers",
@@ -363,7 +363,7 @@ class KnowledgeBase:
                 ),
             ] = None,
             starring: Annotated[
-                Optional[list[str]],
+                Optional[list[str] | str],
                 Field(
                     default=None,
                     title="Actors",
@@ -403,7 +403,7 @@ class KnowledgeBase:
                 ),
             ] = None,
             season: Annotated[
-                Optional[list[int]],
+                Optional[list[int] | int],
                 Field(
                     default=None,
                     title="Seasons",
@@ -411,7 +411,7 @@ class KnowledgeBase:
                 ),
             ] = None,
             episode: Annotated[
-                Optional[list[int]],
+                Optional[list[int] | int],
                 Field(
                     default=None,
                     title="Episodes",
@@ -516,14 +516,36 @@ class KnowledgeBase:
                             positive=cast(list[VectorInput], context.positive_point_ids)
                         )
                     )
-                    context.outer_filter = Filter(
-                        must_not=[
-                            FieldCondition(
-                                key="key",
-                                match=MatchValue(value=context.positive_point_ids[0]),
-                            )
-                        ]
-                    )
+                    if context.outer_filter:
+                        context.outer_filter = Filter(
+                            must=context.outer_filter.must if context.outer_filter.must else [],
+                            must_not=[
+                                *cast(
+                                    list["Condition"],
+                                    (
+                                        context.outer_filter.must_not
+                                        if context.outer_filter.must_not
+                                        else []
+                                    ),
+                                ),
+                                FieldCondition(
+                                    key="key",
+                                    match=MatchValue(value=context.positive_point_ids[0]),
+                                ),
+                            ],
+                            should=(
+                                context.outer_filter.should if context.outer_filter.should else []
+                            ),
+                        )
+                    else:
+                        context.outer_filter = Filter(
+                            must_not=[
+                                FieldCondition(
+                                    key="key",
+                                    match=MatchValue(value=context.positive_point_ids[0]),
+                                )
+                            ]
+                        )
             elif full_text_query:
                 context.query = KnowledgeBase.instance().document(full_text_query)
 
@@ -577,7 +599,7 @@ class KnowledgeBase:
                 diagnostics=Diagnostics(
                     retrieval=Retrieval(dense_weight=1.0, sparse_weight=0.0),
                     reranker=None,
-                    filters_applied=len(must) > 0 or len(should) > 0,
+                    filters_applied=len(must or []) > 0 or len(should or []) > 0,
                     fallback_used=context.query is not None,
                 ),
             )
