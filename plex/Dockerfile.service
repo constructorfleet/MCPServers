@@ -22,7 +22,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 ENTRYPOINT ["/app/plex/entrypoint.service.sh"]
 
-ENV MCP_PACKAGE="mcp-plex"
+ENV SCRIPT="load-data"
 ENV PLEX_TOKEN=
 ENV PLEX_URL=
 # ENV MCP_EXTRA_ARGS="--plex-token $$PLEX_TOKEN --plex-url $$PLEX_URL"
