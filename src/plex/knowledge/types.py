@@ -42,7 +42,7 @@ class MediaCollection(BaseModel):
     id: int
     tag: str
     guid: str
-    summary: str
+    summary: Optional[str] = None
 
 
 class PlexMediaPayload(BaseModel):
