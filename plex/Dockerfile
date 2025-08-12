@@ -2,6 +2,17 @@ ARG BASE_IMAGE="docker.home.prettybaked.com/constructorfleet/mcp-base"
 ARG BASE_VERSION=latest
 FROM "${BASE_IMAGE}:${BASE_VERSION}" AS base
 FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+ARG PACKAGE_DIR
+
+# Set env defaults; override at runtime or build time
+ENV PACKAGE=""
+ENV PACKAGE_ARGS=""
+ENV LOG_LEVEL=INFO
+ENV MCP_TRANSPORT=stdio
+ENV MCP_PORT=3000
+ENV MCP_HOST=0.0.0.0
+ENV MCP_MOUNT=sse
+
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y --no-install-recommends software-properties-common curl gnupg lsb-release && \
@@ -22,6 +33,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 ENTRYPOINT ["/app/base/entrypoint.sh"]
 
+ENV MCP_PACKAGE="mcp-plex"
 ENV PLEX_TOKEN=
 ENV PLEX_URL=
 # ENV MCP_EXTRA_ARGS="--plex-token $$PLEX_TOKEN --plex-url $$PLEX_URL"

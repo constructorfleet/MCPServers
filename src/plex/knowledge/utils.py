@@ -652,7 +652,14 @@ def point_to_media_result(
     """
     payload = PlexMediaPayload(**p.payload)  # type: ignore
     item = payload_class.model_validate(payload)
-    series = payload.show_title
+    series = None
+    if payload.type == "episode":
+        series = payload.show_title
+    elif payload.type == "movie":
+        collection = payload.collection
+        if collection:
+            series = collection.tag
+
     return MediaResult(
         key=item.key,
         result_type=item.type,

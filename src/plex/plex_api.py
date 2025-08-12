@@ -23,7 +23,7 @@ from plexapi.server import PlexServer
 from qdrant_client.models import ExtendedPointId
 
 from plex.knowledge import Collection, KnowledgeBase, PlexMediaPayload, PlexMediaQuery
-from plex.knowledge.types import Rating, Review
+from plex.knowledge.types import MediaCollection, Rating, Review, Services
 from plex.utils import batch_map
 
 _LOGGER = logging.getLogger(__name__)
@@ -165,7 +165,7 @@ class Navigation(Controller, path="navigation"):
 
 
 DEFAULT_QUERY_PARAMETERS: Mapping[str, httpx._types.PrimitiveData] = {
-    "includeGuids": 0,
+    "includeGuids": 1,
     "includeRelated": 0,
     "includeChapters": 1,
     "includeReviews": 1,
@@ -536,6 +536,12 @@ class PlexTextSearch:
                 )
                 for item in item.get("Rating", [])
             ],
+            services=Services(
+                tmdb={guid['id'].split(':')[0]: guid['id'] for guid in item.get("Guid", [])}.get('tmdb'),
+                imdb={guid['id'].split(':')[0]: guid['id'] for guid in item.get("Guid", [])}.get('imdb'),
+                tvdb={guid['id'].split(':')[0]: guid['id'] for guid in item.get("Guid", [])}.get('tvdb'),
+            ),
+            collection=MediaCollection(**item["Collection"]) if item.get("Collection", None) else None
         )
 
     async def schedule_load_items(self, sleep: int = 60):

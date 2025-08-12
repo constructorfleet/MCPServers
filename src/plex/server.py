@@ -26,6 +26,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from base import mcp, run_server
+from plex.common import add_args, check_args
 from plex.format import (
     format_client,
     format_episode,
@@ -839,36 +840,7 @@ def add_plex_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 
 async def on_run_server(args):
-    if not os.environ.get("PLEX_SERVER_URL"):
-        if not args.plex_url:
-            raise ValueError(
-                "Plex server URL must be provided via --plex-url or PLEX_SERVER_URL environment variable."
-            )
-        os.environ["PLEX_SERVER_URL"] = args.plex_url
-    if not os.environ.get("PLEX_TOKEN"):
-        if not args.plex_token:
-            raise ValueError(
-                "Plex token must be provided via --plex-token or PLEX_TOKEN environment variable."
-            )
-        os.environ["PLEX_TOKEN"] = args.plex_token
-    if not os.environ.get("QDRANT_HOST"):
-        if not args.qdrant_host:
-            raise ValueError(
-                "Qdrant host must be provided via --qdrant-host or QDRANT_HOST environment variable."
-            )
-        os.environ["QDRANT_HOST"] = args.qdrant_host
-    if not os.environ.get("QDRANT_PORT"):
-        if not args.qdrant_port:
-            raise ValueError(
-                "Qdrant port must be provided via --qdrant-port or QDRANT_PORT environment variable."
-            )
-        os.environ["QDRANT_PORT"] = str(args.qdrant_port)
-    if not os.environ.get("MODEL_NAME"):
-        if not args.model_name:
-            raise ValueError(
-                "Model name must be provided via --model-name or MODEL_NAME environment variable."
-            )
-        os.environ["MODEL_NAME"] = args.model_name
+    check_args(args)
 
     global plex_api, plex_search
     plex_api = PlexAPI(os.environ["PLEX_SERVER_URL"], os.environ["PLEX_TOKEN"])
@@ -884,7 +856,7 @@ async def on_run_server(args):
 
 
 def main():
-    run_server("plex", add_args_fn=add_plex_args, run_callback=on_run_server)
+    run_server("plex", add_args_fn=add_args(plex=True, qdrant=True, sleep=False), run_callback=on_run_server)
 
 
 # --- Main Execution ---

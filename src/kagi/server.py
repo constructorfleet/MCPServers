@@ -18,11 +18,7 @@ logger = logging.getLogger(__name__)
 # These two lines enable debugging at httplib level (requests->urllib3->http.client)
 # You will see the REQUEST, including HEADERS and DATA, and RESPONSE with HEADERS but without DATA.
 # The only thing missing will be the response.body which is not logged.
-try:
-    import http.client as http_client
-except ImportError:
-    # Python 2
-    import httplib as http_client
+import http.client as http_client
 http_client.HTTPConnection.debuglevel = 1
 
 # You must initialize logging, otherwise you'll not see debug output.
@@ -38,7 +34,7 @@ kagi_client: KagiClient
 @mcp.tool(
     name="get_news",
     description="Retrive new results based on one or more queries using the Kagi Search API.",
-    tags=["search", "web", "news"],
+    tags={"search", "web", "news"},
 )
 def search_web(
     query: str = Field(
@@ -70,7 +66,7 @@ def search_web(
 mcp.tool(
     name="web_topics",
     description="Fetch web results from the provided query using the Kagi Search API.",
-    tags=["search", "web", "news"],
+    tags={"search", "web", "news"},
 )
 def get_news(
     query: str = Field(

@@ -4,13 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-kagi"
-version = "0.3.1"
+version = "0.3.2"
 description = "Kagi-specific automation"
 requires-python = ">=3.11,<4"
 dependencies = [
   "kagiapi>=0.2.1",
-  "mcp_base @ file://${PROJECT_ROOT}/base",
+  "mcp-base"
 ]
+
+[tool.uv.sources]
+mcp-base = { path = "../base" }
 
 [project.scripts]
 mcp-kagi = "kagi.server:main"

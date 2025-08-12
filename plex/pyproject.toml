@@ -9,7 +9,7 @@ version = "0.17.1"
 description = "Plex-specific automation"
 requires-python = ">=3.11,<4"
 dependencies = [
-  "mcp_base @ file://${PROJECT_ROOT}/base",
+  "mcp-base",
   "plexapi>=4.17.0",
   "qdrant-client[fastembed-gpu]>=1.12.1",
   "rapidfuzz>=3.13.0",
@@ -22,6 +22,9 @@ load-data = "plex.service:main"
 
 [[tool.uv.index]]
 url = "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/"
+
+[tool.uv.sources]
+mcp-base = { path = "../base" }
 
 [tool.setuptools]
 package-dir = { "" = "../src" }

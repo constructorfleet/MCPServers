@@ -30,6 +30,19 @@ class Rating(BaseModel):
     source: str
     type: str
     score: float
+    
+
+class Services(BaseModel):
+    tmdb: Optional[str] = None
+    imdb: Optional[str] = None
+    tvdb: Optional[str] = None
+    
+
+class MediaCollection(BaseModel):
+    id: int
+    tag: str
+    guid: str
+    summary: str
 
 
 class PlexMediaPayload(BaseModel):
@@ -60,6 +73,8 @@ class PlexMediaPayload(BaseModel):
     producers: Optional[list[str]] = None
     reviews: Optional[list[Review]] = None
     ratings: Optional[list[Rating]] = None
+    services: Optional[Services] = None
+    collection: Optional[MediaCollection] = None
 
     @classmethod
     def document(cls, item: "PlexMediaPayload") -> str:
