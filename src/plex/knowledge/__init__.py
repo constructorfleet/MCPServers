@@ -6,6 +6,8 @@ from typing import Annotated, Callable, Literal, Optional, Type, cast
 
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 from pydantic import BaseModel, Field
 from qdrant_client.async_qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
@@ -334,14 +336,7 @@ class KnowledgeBase:
                 DataPoint(payload_class=PlexMediaPayload, **p.model_dump()) for p in result.points
             ]
 
-        @mcp.tool(
-            name="find_media",
-            description="Retrieve/recommend films and TV (series, seasons, episodes) by similarity, cast/crew, genres, keywords, or vague plot clues.",
-            output_schema=MediaSearchResponse.model_json_schema(),
-            annotations=ToolAnnotations(title="Search or Recommend Media"),
-            tags={"plex", "media", "search", "recommend"},
-        )
-        async def tool(
+        async def find_media(
             media_type: Annotated[
                 str,
                 Field(
@@ -628,4 +623,193 @@ class KnowledgeBase:
                         should or []) > 0,
                     fallback_used=context.query is not None,
                 ),
+            )
+
+        @mcp.custom_route(
+            path="/find_media",
+            methods=["POST"],
+            name="Find Media",
+        )
+        async def find_media_handler(
+            request: Request,
+        ):
+            data = await request.json()
+            return JSONResponse(await find_media(**data))
+
+        @mcp.tool(
+            name="find_media",
+            description="Retrieve/recommend films and TV (series, seasons, episodes) by similarity, cast/crew, genres, keywords, or vague plot clues.",
+            output_schema=MediaSearchResponse.model_json_schema(),
+            annotations=ToolAnnotations(title="Search or Recommend Media"),
+            tags={"plex", "media", "search", "recommend"},
+        )
+        async def tool(
+            media_type: Annotated[
+                str,
+                Field(
+                    title="Media Type",
+                    description="The media library section to query 'movies' or 'episodes'.",
+                    examples=["movies", "episodes"],
+                ),
+            ],
+            similar_to: Annotated[
+                Optional[str],
+                Field(
+                    default=None,
+                    title="Similarity Title Anchor Filter",
+                    description="The title of another media to use as a similarity anchor for the query: similar genres, plots, synopsis. etc/",
+                ),
+            ] = None,
+            with_genre: Annotated[
+                Optional[list[str] | str],
+                Field(
+                    default=None,
+                    title="Genres",
+                    description="Query for media that is categorized by these genres.",
+                ),
+            ] = None,
+            directed_by: Annotated[
+                Optional[list[str] | str],
+                Field(
+                    default=None,
+                    title="Directors",
+                    description="Query for media that was directed by these individuals.",
+                ),
+            ] = None,
+            written_by: Annotated[
+                Optional[list[str] | str],
+                Field(
+                    default=None,
+                    title="Writers",
+                    description="Query for media that was written by these individuals.",
+                ),
+            ] = None,
+            starring: Annotated[
+                Optional[list[str] | str],
+                Field(
+                    default=None,
+                    title="Actors",
+                    description="Query for media that the following individuals act in.",
+                ),
+            ] = None,
+            summary: Annotated[
+                Optional[str],
+                Field(
+                    default=None,
+                    title="Plot",
+                    description="Query for media with similar plots.",
+                ),
+            ] = None,
+            aired_before: Annotated[
+                Optional[date],
+                Field(
+                    default=None,
+                    title="Aired Before",
+                    description="Query for media aired before: <date> or <int> days ago",
+                ),
+            ] = None,
+            aired_after: Annotated[
+                Optional[date],
+                Field(
+                    default=None,
+                    title="Aired After",
+                    description="Query for media that aired after: <date> or <int> days ago",
+                ),
+            ] = None,
+            series: Annotated[
+                Optional[str],
+                Field(
+                    default=None,
+                    title="Series",
+                    description="Query for media that is part of this series.",
+                ),
+            ] = None,
+            season: Annotated[
+                Optional[list[int] | int],
+                Field(
+                    default=None,
+                    title="Seasons",
+                    description="Query for media with these season number.",
+                ),
+            ] = None,
+            episode: Annotated[
+                Optional[list[int] | int],
+                Field(
+                    default=None,
+                    title="Episodes",
+                    description="Query for media with these episode numbers.",
+                ),
+            ] = None,
+            rating_min: Annotated[
+                Optional[float],
+                Field(
+                    default=None,
+                    title="Minimum Rating",
+                    description="Query for media with a minimum rating.",
+                ),
+            ] = None,
+            rating_max: Annotated[
+                Optional[float],
+                Field(
+                    default=None,
+                    title="Maximum Rating",
+                    description="Query for media with a maximum rating.",
+                ),
+            ] = None,
+            watched: Annotated[
+                Optional[bool],
+                Field(
+                    default=None,
+                    title="Watched Status",
+                    description="Query for media that has or has not been watched.",
+                ),
+            ] = None,
+            limit: Annotated[
+                Optional[int],
+                Field(
+                    default=None,
+                    title="Limit",
+                    description="Query for a maximum number of results.",
+                ),
+            ] = None,
+            offset: Annotated[
+                Optional[int],
+                Field(
+                    default=None,
+                    title="Offset",
+                    description="Query for the number of results to skip.",
+                ),
+            ] = None,
+            theme_or_story: Annotated[
+                Optional[str],
+                Field(
+                    default=None,
+                    title="Theme or story",
+                    description="Query based on theme, story or other vague characteristics.",
+                    examples=[
+                        "What's that episode where a journalist, an artist, a musician are invited to a billionaire's house and there's a meteor at the end?"
+                    ],
+                ),
+            ] = None,
+        ) -> MediaSearchResponse:
+            """Find media items (movies or episodes) based on various criteria."""
+            return await find_media(
+                media_type=media_type,
+                similar_to=similar_to,
+                with_genre=with_genre,
+                summary=summary,
+                directed_by=directed_by,
+                starring=starring,
+                written_by=written_by,
+                aired_before=aired_before,
+                aired_after=aired_after,
+                series=series,
+                season=season,
+                episode=episode,
+                rating_min=rating_min,
+                rating_max=rating_max,
+                watched=watched,
+                limit=limit,
+                offset=offset,
+                theme_or_story=theme_or_story,
             )

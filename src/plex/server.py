@@ -293,36 +293,27 @@ async def get_active_clients(
 
 
 @mcp.tool(
-    name="play_media_on_client",
-    description="Play specified media on a given Plex client.",
+    name="play_media",
+    description="Play a movie or tv show on a given Plex client.",
     annotations=ToolAnnotations(
         title="Play Media on Client",
     ),
 )
 async def play_media_on_client(
-    machine_identifier_or_client_name: Annotated[
+    client_name: Annotated[
         str,
         Field(
-            description="Either the machine identifier or the name of the of the Plex client. Find this by calling the get_client_machine_identifier tool.",
-            examples=["abcd1234efgh5678ijkl9012mnop3456qrst7890uvwx"],
-        ),
-    ],
-    media_key: Annotated[
-        Optional[int],
-        Field(
-            default=None,
-            description="The key of the media item to play (if media_title is not provided).",
-            examples=[12345, 67890],
+            description="The name of the client to start the playback.",
+            examples=["movie room", "living room tv"],
         ),
     ],
     media_title: Annotated[
-        Optional[str],
+        str,
         Field(
-            default=None,
-            description="The title of the media item to play (if media_key is not provided).",
+            description="The title of the media item to play.",
             examples=["Inception", "The Matrix"],
         ),
-    ] = None,
+    ],
     media_type: Annotated[
         Optional[Literal["movie"] | Literal["episode"]],
         Field(
@@ -339,7 +330,7 @@ async def play_media_on_client(
     Returns:
         A success message or an error message.
     """
-    if not media_key and not media_title:
+    if not media_title:
         return "ERROR: Either media_key or media_title must be provided."
     if not plex_api:
         return "ERROR: Plex server not configured."
@@ -350,49 +341,24 @@ async def play_media_on_client(
         if not clients:
             return "No active clients connected to your Plex server."
         logger.info("Found %d active clients.", len(clients))
-        if (
-            len(
-                [
-                    c
-                    for c in clients
-                    if c.machineIdentifier == machine_identifier_or_client_name
-                    or c.title == machine_identifier_or_client_name
-                ]
-            )
-            > 0
-        ):
-            client = [
-                c
-                for c in clients
-                if c.machineIdentifier == machine_identifier_or_client_name
-                or c.title == machine_identifier_or_client_name
-            ][0]
+        if len([c for c in clients if c.title == client_name]) > 0:
+            client = [c for c in clients if c.title == client_name][0]
         else:
             client = match_client_name(
-                machine_identifier_or_client_name,
+                client_name,
                 clients,
                 filter=lambda c: "playback" in c.protocolCapabilities,
             )
         if not client:
-            return (
-                f"No client found with machine identifier/name {machine_identifier_or_client_name}."
-            )
+            return f"No client found with name {client_name}."
         if "playback" not in client.protocolCapabilities:
             return f"Client {client.title} does not support playback control."
-        if not media_key and media_title:
-            media = await get_plex_search().find_media(
-                PlexMediaQuery(type=media_type, title=media_title), limit=1
-            )
-            if not media:
-                return f"No media found with title {media_title}."
-            media_key = media[0].key if media else None
-        if not media_key:
-            return f"No media found with title {media_title}."
-        logger.info("Found client: %s with media key: %s", client.title, media_key)
-        media = await plex_api.get_media(media_key)
+
+        media = await get_plex_search().find_media(
+            PlexMediaQuery(type=media_type, title=media_title), limit=1
+        )
         if not media:
-            return f"No media found with key {media_key}."
-        logger.info("Playing media: %s on client: %s", media.title, client.title)
+            return f"No media found with title {media_title}."
         await asyncio.to_thread(client.playMedia, media)
         return f"Playing {media.title} on {client.title}."  # type: ignore
     except Exception as e:
