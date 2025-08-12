@@ -118,6 +118,7 @@ def format_media(video: PlexAPIVideo) -> str:
             show_title=None,
             season=None,
             episode=None,
+            air_date=None
         )
     else:
         payload = PlexMediaPayload(
@@ -136,8 +137,9 @@ def format_media(video: PlexAPIVideo) -> str:
             duration_seconds=(video.duration // 1000) if video.duration else 0,
             content_rating=video.contentRating if hasattr(video, 'contentRating') else None,
             show_title=video.grandparentTitle if hasattr(video, 'grandparentTitle') else None,
-            season=str(video.parentIndex) if hasattr(video, 'parentIndex') and video.parentIndex is not None else None,
+            season=video.parentIndex if hasattr(video, 'parentIndex') and video.parentIndex is not None else None,
             episode=int(video.index) if hasattr(video, 'index') and video.index is not None else None,
+            air_date=None
         )
     return (
         f"{format_episode(payload) if not is_movie else format_movie(payload)}\n"

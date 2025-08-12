@@ -110,10 +110,10 @@ async def health(request: Request) -> Response:
 )
 async def get_movie_details(
     movie_key: Annotated[
-        str,
+        int,
         Field(
             description="The key identifying the movie to retrieve details for.",
-            examples=["12345", "67890"],
+            examples=[12345, 67890],
         ),
     ],
 ) -> str:
@@ -130,36 +130,12 @@ async def get_movie_details(
         return "ERROR: Plex API is not initialized."
     logger.info("Fetching movie details for key '%s'", movie_key)
     try:
-        key = int(movie_key)
-        movie = await plex_api.get_item(key)
+        movie = await plex_api.get_item(movie_key)
 
         if not movie:
             return f"No movie found with key {movie_key}."
-        payload = PlexMediaPayload(
-            key=int(movie["ratingKey"]),
-            title=movie["title"],
-            summary=movie["summary"],
-            year=int(movie["year"]) if movie["year"] else 0,
-            rating=float(movie["rating"]) * 10.0 if movie["rating"] else 0.0,
-            watched=movie["isWatched"],
-            type="movie",
-            genres=[g.tag for g in movie["Genre"]] if movie["Genre"] else [],
-            actors=[a.tag for a in movie["Actor"]] if movie["Actor"] else [],
-            studio=movie["studio"] or "",
-            directors=[d.tag for d in movie["Director"]
-                       ] if movie["Director"] else [],
-            writers=[w.tag for w in movie["Writer"]
-                     ] if movie["Writer"] else [],
-            duration_seconds=(movie["duration"] //
-                              1000) if movie["duration"] else 0,
-            content_rating=movie["contentRating"] if "contentRating" in movie else None,
-            show_title=None,
-            season=None,
-            episode=None,
-            air_date=None,
-        )
-        logger.info("Returning %s", format_movie(payload))
-        return format_movie(payload)
+        logger.info("Returning %s", format_movie(movie))
+        return format_movie(movie)
     except NotFound:
         return f"ERROR: Movie with key {movie_key} not found."
     except Exception as e:
@@ -188,31 +164,6 @@ async def get_new_movies() -> str:
         movies = await plex_api.get_new_movies()
         if not movies:
             return "No new movies found in your Plex library."
-        movies = [
-            PlexMediaPayload(
-                key=int(m["ratingKey"]),
-                title=m["title"],
-                summary=m["summary"],
-                year=int(m["year"]) if m["year"] else 0,
-                rating=float(m["rating"]) * 10.0 if m["rating"] else 0.0,
-                watched=m["isWatched"],
-                type="movie",
-                genres=[g.tag for g in m["Genre"]] if m["Genre"] else [],
-                actors=[a.tag for a in m["Actor"]] if m["Actor"] else [],
-                studio=m["studio"] or "",
-                directors=[d.tag for d in m["Director"]
-                           ] if m["Director"] else [],
-                writers=[w.tag for w in m["Writer"]] if m["Writer"] else [],
-                duration_seconds=(
-                    m["duration"] // 1000) if m["duration"] else 0,
-                content_rating=m["contentRating"] if "contentRating" in m else None,
-                show_title=None,
-                season=None,
-                episode=None,
-                air_date=None,
-            )
-            for m in movies
-        ]
         results: List[str] = []
         for i, m in enumerate(movies[:10], start=1):
             # type: ignore
@@ -235,7 +186,7 @@ async def get_episode_details(
         int,
         Field(
             description="The key identifying the episode to retrieve details for.",
-            examples=["12345", "67890"],
+            examples=[12345, 67890],
         ),
     ],
 ) -> str:
@@ -255,38 +206,7 @@ async def get_episode_details(
         episode = await plex_api.get_item(episode_key)
         if not episode:
             return f"No episode found with key {episode_key}."
-        payload = PlexMediaPayload(
-            key=int(episode["ratingKey"]),
-            title=episode["title"],
-            summary=episode["summary"],
-            year=int(episode["year"]) if episode["year"] else 0,
-            rating=float(episode["rating"]) *
-            10.0 if episode["rating"] else 0.0,
-            watched=episode["isWatched"],
-            type="episode",
-            genres=[g.tag for g in episode["Genre"]
-                    ] if episode["Genre"] else [],
-            actors=[a.tag for a in episode["Actor"]
-                    ] if episode["Actor"] else [],
-            studio=episode["studio"] or "",
-            directors=[d.tag for d in episode["Director"]
-                       ] if episode["Director"] else [],
-            writers=[w.tag for w in episode["Writer"]
-                     ] if episode["Writer"] else [],
-            duration_seconds=(episode["duration"] //
-                              1000) if episode["duration"] else 0,
-            content_rating=episode["contentRating"] if "contentRating" in episode else None,
-            show_title=episode["grandparentTitle"] if "grandparentTitle" in episode else None,
-            season=(
-                episode["parentTitle"]
-                if "parentTitle" in episode and episode["parentTitle"]
-                else None
-            ),
-            episode=int(
-                episode["index"]) if "index" in episode and episode["index"] else None,
-            air_date=None,
-        )
-        return format_episode(payload)
+        return format_episode(episode)
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
@@ -311,32 +231,6 @@ async def get_new_shows() -> str:
         episodes = await plex_api.get_new_episodes()
         if not episodes:
             return "No new episodes found in your Plex library."
-        episodes = [
-            PlexMediaPayload(
-                key=int(e["ratingKey"]),
-                title=e["title"],
-                summary=e["summary"],
-                year=int(e["year"]) if e["year"] else 0,
-                rating=float(e["rating"]) * 10.0 if e["rating"] else 0.0,
-                watched=e["isWatched"],
-                type="episode",
-                genres=[g.tag for g in e["Genre"]] if e["Genre"] else [],
-                actors=[a.tag for a in e["Actor"]] if e["Actor"] else [],
-                studio=e["studio"] or "",
-                directors=[d.tag for d in e["Director"]
-                           ] if e["Director"] else [],
-                writers=[w.tag for w in e["Writer"]] if e["Writer"] else [],
-                duration_seconds=(
-                    e["duration"] // 1000) if e["duration"] else 0,
-                content_rating=e["contentRating"] if "contentRating" in e else None,
-                show_title=e["grandparentTitle"] if "grandparentTitle" in e else None,
-                season=e["parentTitle"] if "parentTitle" in e and e["parentTitle"] else None,
-                episode=int(
-                    e["index"]) if "index" in e and e["index"] else None,
-                air_date=None,
-            )
-            for e in episodes
-        ]
         results: List[str] = []
         for i, m in enumerate(episodes[:10], start=1):
             # type: ignore
@@ -419,7 +313,7 @@ async def play_media_on_client(
         Field(
             default=None,
             description="The key of the media item to play (if media_title is not provided).",
-            examples=["12345", "67890"],
+            examples=[12345, 67890],
         ),
     ],
     media_title: Annotated[

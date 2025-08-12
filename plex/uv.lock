@@ -768,7 +768,7 @@ requires-dist = [
 
 [[package]]
 name = "mcp-plex"
-version = "0.17.1"
+version = "0.17.6"
 source = { editable = "." }
 dependencies = [
     { name = "mcp-base" },
