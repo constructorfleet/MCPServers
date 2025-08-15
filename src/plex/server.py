@@ -354,7 +354,7 @@ async def play_media_on_client(
         )
         if not found_media:
             return f"No media found with title {media_title}."
-        media = asyncio.to_thread(plex_api.get_media, found_media[0].key)
+        media = await asyncio.to_thread(plex_api.get_media, found_media[0].key)
         await asyncio.to_thread(client.playMedia, media)
         return f"Playing {media.title} on {client.title}."  # type: ignore
     except Exception as e:
