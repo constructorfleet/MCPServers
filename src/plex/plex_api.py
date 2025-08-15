@@ -42,24 +42,31 @@ def parse_plex_payload(payload: dict) -> PlexMediaPayload:
         key=int(payload.get("ratingKey", "")),
         title=payload.get("title", ""),
         summary=payload.get("summary", ""),
-        genres=([g["tag"] for g in payload.get("Genre", [])] if payload.get("Genre") else []),
+        genres=([g["tag"] for g in payload.get("Genre", [])]
+                if payload.get("Genre") else []),
         directors=(
-            [d["tag"] for d in payload.get("Director", [])] if payload.get("Director") else []
+            [d["tag"] for d in payload.get("Director", [])] if payload.get(
+                "Director") else []
         ),
-        actors=([a["tag"] for a in payload.get("Role", [])] if payload.get("Role") else []),
-        writers=([w["tag"] for w in payload.get("Writer", [])] if payload.get("Writer") else []),
+        actors=([a["tag"] for a in payload.get("Role", [])]
+                if payload.get("Role") else []),
+        writers=([w["tag"] for w in payload.get("Writer", [])]
+                 if payload.get("Writer") else []),
         producers=(
-            [p["tag"] for p in payload.get("Producer", [])] if payload.get("Producer") else []
+            [p["tag"] for p in payload.get("Producer", [])] if payload.get(
+                "Producer") else []
         ),
         year=payload["year"] if payload.get("year", None) is not None else 0,
         studio=payload.get("studio", ""),
-        rating=float(payload.get("rating", 0.0)) * 10 if payload.get("rating") else 0.0,
+        rating=float(payload.get("rating", 0.0)) *
+        10 if payload.get("rating") else 0.0,
         content_rating=payload.get("contentRating"),
         type=payload.get("type", ""),
         watched=payload.get("viewCount", 0) > 0,
         duration_seconds=int(payload.get("duration", 0)),
         show_title=payload.get("grandparentTitle"),
-        season=payload.get("parentIndex") if payload.get("parentTitle") else None,
+        season=payload.get("parentIndex") if payload.get(
+            "parentTitle") else None,
         episode=payload.get("index") if payload.get("index") else None,
         air_date=(
             date.fromisoformat(str(payload.get("originallyAvailableAt")))
@@ -128,9 +135,11 @@ class Command:
                 if k not in kwargs:
                     raise TypeError(f"Missing required argument: {k}")
                 if not isinstance(
-                    kwargs[k], expected.__args__[0] if hasattr(expected, "__args__") else expected
+                    kwargs[k], expected.__args__[0] if hasattr(
+                        expected, "__args__") else expected
                 ):
-                    raise TypeError(f"{k} must be {expected}, got {type(kwargs[k])}")
+                    raise TypeError(
+                        f"{k} must be {expected}, got {type(kwargs[k])}")
             if self.transform:
                 kwargs = self.transform(kwargs)
             return await http_client(controller_path, self.path, params=kwargs)
@@ -138,7 +147,8 @@ class Command:
         return call
 
     def __call__(self, *args: Any, **kwds: Any) -> Any:
-        raise RuntimeError("Commands must be called via a Controller instance.")
+        raise RuntimeError(
+            "Commands must be called via a Controller instance.")
 
 
 class ControllerMeta(type):
@@ -155,14 +165,16 @@ class Controller(metaclass=ControllerMeta):
     def __init__(self, send_request: Callable[[str, str, str], Any]) -> None:
         self.send_request = send_request
         for name, cmd in self._commands.items():  # type: ignore
-            bound = cmd.bind(self._controller_path, self.send_request)  # type: ignore
+            bound = cmd.bind(self._controller_path,
+                             self.send_request)  # type: ignore
             setattr(self, name, bound)
 
     def __getattr__(self, name: str):
         cmd = self._commands.get(name)
         if cmd:
             return cmd.bind(self._controller_path, self._http_client)
-        raise AttributeError(f"{self.__class__.__name__} has no command '{name}'")
+        raise AttributeError(
+            f"{self.__class__.__name__} has no command '{name}'")
 
 
 class Playback(Controller, path="playback"):
@@ -172,12 +184,15 @@ class Playback(Controller, path="playback"):
         self.play = Command(path="play", schema={"id": str}).bind(
             self._controller_path, self.send_request
         )
-        self.pause = Command(path="pause").bind(self._controller_path, self.send_request)
-        self.stop = Command(path="stop").bind(self._controller_path, self.send_request)
+        self.pause = Command(path="pause").bind(
+            self._controller_path, self.send_request)
+        self.stop = Command(path="stop").bind(
+            self._controller_path, self.send_request)
         self.seek_to = Command(path="seekTo", schema={"position": int}).bind(
             self._controller_path, self.send_request
         )
-        self.skip_next = Command(path="skipNext").bind(self._controller_path, self.send_request)
+        self.skip_next = Command(path="skipNext").bind(
+            self._controller_path, self.send_request)
         self.skip_previous = Command(path="skipPrevious").bind(
             self._controller_path, self.send_request
         )
@@ -212,22 +227,35 @@ class Playback(Controller, path="playback"):
 class Navigation(Controller, path="navigation"):
     def __init__(self, http_client: Any):
         super().__init__(http_client)
-        self.move_up = Command(path="moveUp").bind(self._controller_path, self.send_request)
-        self.move_down = Command(path="moveDown").bind(self._controller_path, self.send_request)
-        self.move_left = Command(path="moveLeft").bind(self._controller_path, self.send_request)
-        self.move_right = Command(path="moveRight").bind(self._controller_path, self.send_request)
-        self.select = Command(path="select").bind(self._controller_path, self.send_request)
-        self.back = Command(path="back").bind(self._controller_path, self.send_request)
-        self.home = Command(path="home").bind(self._controller_path, self.send_request)
+        self.move_up = Command(path="moveUp").bind(
+            self._controller_path, self.send_request)
+        self.move_down = Command(path="moveDown").bind(
+            self._controller_path, self.send_request)
+        self.move_left = Command(path="moveLeft").bind(
+            self._controller_path, self.send_request)
+        self.move_right = Command(path="moveRight").bind(
+            self._controller_path, self.send_request)
+        self.select = Command(path="select").bind(
+            self._controller_path, self.send_request)
+        self.back = Command(path="back").bind(
+            self._controller_path, self.send_request)
+        self.home = Command(path="home").bind(
+            self._controller_path, self.send_request)
         self.context_menu = Command(path="contextMenu").bind(
             self._controller_path, self.send_request
         )
-        self.show_osd = Command(path="showOSD").bind(self._controller_path, self.send_request)
-        self.hide_osd = Command(path="hideOSD").bind(self._controller_path, self.send_request)
-        self.toggle_osd = Command(path="toggleOSD").bind(self._controller_path, self.send_request)
-        self.page_up = Command(path="pageUp").bind(self._controller_path, self.send_request)
-        self.page_down = Command(path="pageDown").bind(self._controller_path, self.send_request)
-        self.next_letter = Command(path="nextLetter").bind(self._controller_path, self.send_request)
+        self.show_osd = Command(path="showOSD").bind(
+            self._controller_path, self.send_request)
+        self.hide_osd = Command(path="hideOSD").bind(
+            self._controller_path, self.send_request)
+        self.toggle_osd = Command(path="toggleOSD").bind(
+            self._controller_path, self.send_request)
+        self.page_up = Command(path="pageUp").bind(
+            self._controller_path, self.send_request)
+        self.page_down = Command(path="pageDown").bind(
+            self._controller_path, self.send_request)
+        self.next_letter = Command(path="nextLetter").bind(
+            self._controller_path, self.send_request)
         self.previous_letter = Command(path="previousLetter").bind(
             self._controller_path, self.send_request
         )
@@ -365,7 +393,8 @@ class PlexAPI:
         data = await self._make_request(
             "GET",
             f"/library/metadata/{rating_key}",
-            params={"includeReviews": 1, "includeCollections": 1, "includeTags": 1},
+            params={"includeReviews": 1,
+                    "includeCollections": 1, "includeTags": 1},
         )
         return parse_plex_payload(
             data.get("MediaContainer", {}).get("Metadata", [{}])[0]
@@ -446,7 +475,8 @@ class PlexAPI:
         playlists = response.get("MediaContainer", {}).get("Metadata", [])
         for playlist in playlists:
             items = await self._make_request("GET", playlist["key"])
-            playlist["items"] = items.get("MediaContainer", {}).get("Metadata", [])
+            playlist["items"] = items.get(
+                "MediaContainer", {}).get("Metadata", [])
         return playlists
 
     async def get_client(self, machine_identifier: str) -> PlexClient | None:
@@ -455,9 +485,9 @@ class PlexAPI:
             (c for c in await self.get_clients() if c.machineIdentifier == machine_identifier), None
         )
 
-    async def get_media(self, key: int | str) -> Media | None:
+    def get_media(self, key: int | str) -> Media | None:
         """Get media item by key."""
-        return await asyncio.to_thread(self.server.fetchItem, key)
+        return self.server.fetchItem(key)
 
 
 class PlexTextSearch:
@@ -502,14 +532,16 @@ class PlexTextSearch:
         )
         _LOGGER.info("Loading details...")
         results = await batch_map(
-            [item["ratingKey"] for item in list(itertools.chain.from_iterable(all_payloads))],
+            [item["ratingKey"]
+                for item in list(itertools.chain.from_iterable(all_payloads))],
             self._load_details,
             batch_size=50,
             concurrency=10,
             return_exceptions=False,
         )
         items.extend(
-            [item for item in results if item is not None and isinstance(item, PlexMediaPayload)]
+            [item for item in results if item is not None and isinstance(
+                item, PlexMediaPayload)]
         )
 
         await self._do_upload(items)
@@ -520,25 +552,31 @@ class PlexTextSearch:
         media_collection = self._media
         movie_collection = await self.knowledge_base.ensure_movies()
         episode_collection = await self.knowledge_base.ensure_episodes()
-        media: Sequence[PlexMediaPayload] = [point for point in items if point.type == "media"]
-        movies: Sequence[PlexMediaPayload] = [point for point in items if point.type == "movie"]
-        episodes: Sequence[PlexMediaPayload] = [point for point in items if point.type == "episode"]
+        media: Sequence[PlexMediaPayload] = [
+            point for point in items if point.type == "media"]
+        movies: Sequence[PlexMediaPayload] = [
+            point for point in items if point.type == "movie"]
+        episodes: Sequence[PlexMediaPayload] = [
+            point for point in items if point.type == "episode"]
         if movie_collection:
-            _LOGGER.info("Upserting %d items into movie collection", len(movies))
+            _LOGGER.info(
+                "Upserting %d items into movie collection", len(movies))
             await movie_collection.upsert_data(
                 movies,
                 lambda x: x.key,
                 False,
             )
         if episode_collection:
-            _LOGGER.info("Upserting %d items into episode collection", len(episodes))
+            _LOGGER.info(
+                "Upserting %d items into episode collection", len(episodes))
             await episode_collection.upsert_data(
                 episodes,
                 lambda x: x.key,
                 False,
             )
         if media_collection:
-            _LOGGER.info("Upserting %d items into media collection", len(items))
+            _LOGGER.info(
+                "Upserting %d items into media collection", len(items))
             await media_collection.upsert_data(
                 media,  # type: ignore
                 lambda x: x.key,
