@@ -14,7 +14,6 @@ import os
 from enum import StrEnum
 
 # --- Import Statements ---
-from random import randint
 from typing import Annotated, Callable, List, Literal, Optional
 
 from mcp.types import ToolAnnotations
@@ -350,12 +349,13 @@ async def play_media_on_client(
         if "playback" not in client.protocolCapabilities:
             return f"Client {client.title} does not support playback control."
 
-        media = await get_plex_search().find_media(
+        found_media = await get_plex_search().find_media(
             PlexMediaQuery(type=media_type, title=media_title), limit=1
         )
-        if not media:
+        if not found_media:
             return f"No media found with title {media_title}."
-        await asyncio.to_thread(client.playMedia, media[randint(0, len(media) - 1)])
+        media = asyncio.to_thread(plex_api.get_media, found_media[0].key)
+        await asyncio.to_thread(client.playMedia, media)
         return f"Playing {media.title} on {client.title}."  # type: ignore
     except Exception as e:
         logger.exception("Failed to play media on client.")
