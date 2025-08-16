@@ -1,12 +1,14 @@
+import http.client as http_client
 import argparse
 import textwrap
-from typing import Dict, Literal, Union, cast
+from typing import Annotated, Dict, Literal, Union, cast
 from base import run_server, mcp
 from kagiapi import KagiClient
 from kagiapi.models import EnrichResponse
 from concurrent.futures import ThreadPoolExecutor
+from starlette.requests import Request
+from starlette.responses import Response, PlainTextResponse
 import os
-import json
 import logging
 from pydantic import Field
 
@@ -18,7 +20,6 @@ logger = logging.getLogger(__name__)
 # These two lines enable debugging at httplib level (requests->urllib3->http.client)
 # You will see the REQUEST, including HEADERS and DATA, and RESPONSE with HEADERS but without DATA.
 # The only thing missing will be the response.body which is not logged.
-import http.client as http_client
 http_client.HTTPConnection.debuglevel = 1
 
 # You must initialize logging, otherwise you'll not see debug output.
@@ -31,11 +32,6 @@ requests_log.propagate = True
 kagi_client: KagiClient
 
 
-@mcp.tool(
-    name="get_news",
-    description="Retrive new results based on one or more queries using the Kagi Search API.",
-    tags={"search", "web", "news"},
-)
 def search_web(
     query: str = Field(
         description="Concise, keyword-focused search queries. Include essential context within each query for standalone use."
@@ -51,7 +47,8 @@ def search_web(
             repr(kagi_client.session.headers),
         )
         with ThreadPoolExecutor() as executor:
-            results = list(executor.map(kagi_client.enrich, [query], timeout=10))
+            results = list(executor.map(
+                kagi_client.enrich, [query], timeout=10))
         if not results or any("error" in result for result in results) or len(results) != 1:
             logger.error("Search failed or returned no results: %s", results)
             raise ValueError("Search failed or returned no results")
@@ -63,9 +60,64 @@ def search_web(
         logger.exception("Error in kagi_search_fetch: %s", e)
         return f"Error: {str(e) or repr(e)}"
 
-mcp.tool(
+
+@mcp.custom_route(
+    path="/search_web",
+    methods=["POST"],
+)
+async def web_search_handler(request: Request) -> Response:
+    query = (await request.json()).get("query", "")
+    return PlainTextResponse(content=await web_search(query))
+
+
+@mcp.tool(
+    name="search_web",
+    description="Search the web for anything.",
+    tags={"search", "web"},
+)
+async def web_search_tool(
+    search_query: Annotated[
+        str,
+        Field(
+            description="Concise, keyword-focused search queries. Include essential context within each query for standalone use."
+        ),
+    ],
+) -> str:
+    return await web_search(search_query)
+
+
+async def web_search(
+    search_query: str = Field(
+        description="Concise, keyword-focused search queries. Include essential context within each query for standalone use."
+    ),
+) -> str:
+    """Search the web for anything."""
+    try:
+        if not search_query:
+            raise ValueError("Search called with no queries.")
+        logger.info(
+            "Performing Kagi search for queries: %s %s",
+            search_query,
+            repr(kagi_client.session.headers),
+        )
+        with ThreadPoolExecutor() as executor:
+            results = list(executor.map(
+                kagi_client.search, [search_query], timeout=10))
+        if not results or any("error" in result for result in results) or len(results) != 1:
+            logger.error("Search failed or returned no results: %s", results)
+            raise ValueError("Search failed or returned no results")
+        results = format_enrich_results(search_query, results[0])
+        logger.info("Search results: %s", results)
+        return results
+
+    except Exception as e:
+        logger.exception("Error in kagi_search_fetch: %s", e)
+        return f"Error: {str(e) or repr(e)}"
+
+
+@mcp.tool(
     name="web_topics",
-    description="Fetch web results from the provided query using the Kagi Search API.",
+    description="Fetch topic results using the Kagi Search API.",
     tags={"search", "web", "news"},
 )
 def get_news(
@@ -82,12 +134,15 @@ def get_news(
             query,
             repr(kagi_client.session.headers),
         )
+
         def enrich_web(query: str) -> EnrichResponse:
             params: Dict[str, Union[int, str]] = {"q": query}
 
-            response = kagi_client.session.get(KagiClient.BASE_URL + "/enrich/news", params=params)
+            response = kagi_client.session.get(
+                KagiClient.BASE_URL + "/enrich/news", params=params)
             response.raise_for_status()
             return response.json()
+
         with ThreadPoolExecutor() as executor:
             results = list(executor.map(enrich_web, [query], timeout=10))
         if not results or any("error" in result for result in results) or len(results) != 1:
@@ -105,24 +160,28 @@ def get_news(
 def format_search_results(queries: list[str], responses) -> str:
     """Formatting of results for response. Need to consider both LLM and human parsing."""
 
-    result_template = textwrap.dedent("""
+    result_template = textwrap.dedent(
+        """
         {result_number}: {title}
         {url}
         Published Date: {published}
         {snippet}
-    """).strip()
+    """
+    ).strip()
 
-    query_response_template = textwrap.dedent("""
+    query_response_template = textwrap.dedent(
+        """
         -----
         Results for search query \"{query}\":
         -----
         {formatted_search_results}
-    """).strip()
+    """
+    ).strip()
 
     per_query_response_strs = []
 
     start_index = 1
-    for query, response in zip(queries, responses):
+    for query, response in zip(queries, responses, strict=False):
         # t == 0 is search result, t == 1 is related searches
         results = [result for result in response["data"] if result["t"] == 0]
 
@@ -148,22 +207,27 @@ def format_search_results(queries: list[str], responses) -> str:
 
     return "\n\n".join(per_query_response_strs)
 
+
 def format_enrich_results(query: str, response: dict) -> str:
     """Formatting of results for response. Need to consider both LLM and human parsing."""
 
-    result_template = textwrap.dedent("""
+    result_template = textwrap.dedent(
+        """
         {result_number}: {title}
         {url}
         Published Date: {published}
         {snippet}
-    """).strip()
+    """
+    ).strip()
 
-    query_response_template = textwrap.dedent("""
+    query_response_template = textwrap.dedent(
+        """
         -----
         Results for search query \"{query}\":
         -----
         {formatted_search_results}
-    """).strip()
+    """
+    ).strip()
 
     per_query_response_strs = []
 
@@ -238,26 +302,30 @@ def kagi_summarizer(
 
 def main():
     run_server("Kagi", add_args_fn=add_kagi_args, run_callback=ensure_env)
-    
+
+
 def ensure_env(args):
-    if not os.environ.get('KAGI_API_KEY', None):
-        if not args.kagi_key:
-            raise Exception('Kagi API Key must be provided via --kagi-key or KAGI_API_KEY env')
-        os.environ['KAGI_API_KEY'] = args.kagi_key
+    if not os.environ.get("KAGI_API_KEY", None):
+        if not args.kagi_api_key:
+            raise Exception(
+                "Kagi API Key must be provided via --kagi-key or KAGI_API_KEY env")
+        os.environ["KAGI_API_KEY"] = args.kagi_api_key
     global kagi_client
     kagi_client = KagiClient(os.environ["KAGI_API_KEY"])
 
     return args
 
+
 def add_kagi_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
-        "-k", "--kagi-api-key",
+        "-k",
+        "--kagi-api-key",
         type=str,
         default=None,
         help="Authentication token for accessing the Kagi API",
     )
     return parser
-    
+
 
 if __name__ == "__main__":
     main()
