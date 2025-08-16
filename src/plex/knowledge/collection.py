@@ -1,8 +1,10 @@
 import asyncio
+from datetime import date
 import json
-from typing import Callable, Generic, Type, Optional
+import logging
+from typing import Annotated, Callable, Generic, Optional, Type, cast
 
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from qdrant_client.async_qdrant_client import AsyncQdrantClient
 from qdrant_client.conversions import common_types as types
 from qdrant_client.models import (
@@ -10,28 +12,41 @@ from qdrant_client.models import (
     Condition,
     Document,
     ExtendedPointId,
-    Prefetch,
-    Vector,
     FieldCondition,
     Filter,
     Fusion,
     FusionQuery,
     MatchPhrase,
-    MatchValue,
     MatchText,
+    MatchValue,
     MinShould,
+    Prefetch,
+    QueryInterface,
+    RecommendInput,
+    RecommendQuery,
+    Vector,
+    VectorInput,
 )
 
-from plex.knowledge.types import PlexMediaQuery, TModel
+from plex.knowledge.types import (
+    DataPoint,
+    Diagnostics,
+    ExplainContext,
+    MediaSearchResponse,
+    MinMax,
+    PlexMediaPayload,
+    PlexMediaQuery,
+    Retrieval,
+    TModel,
+)
 from plex.knowledge.utils import (
-    sparse_from_text,
     apply_diversity,
+    build_filters,
     fuse_two_pass,
     heuristic_rerank,
+    point_to_media_result,
+    sparse_from_text,
 )
-from plex.knowledge.types import DataPoint, PlexMediaPayload
-
-import logging
 
 # from plex.utils import batch_map
 
@@ -61,7 +76,8 @@ class Collection(CollectionInfo, Generic[TModel]):
             points: Points to upsert
             wait: Whether to wait for the operation to complete
         """
-        _LOGGER.info(f"Upserting points to'{self.name}': {len(points)}")  # type: ignore
+        _LOGGER.info(
+            f"Upserting points to'{self.name}': {len(points)}")  # type: ignore
         # await batch_map(
         #     points,
         #     self.qdrant_client.upsert(
@@ -74,7 +90,8 @@ class Collection(CollectionInfo, Generic[TModel]):
     async def upsert_data(
         self,
         data: list[TModel],
-        id_getter: Callable[[TModel], Optional[int | str]] = lambda x: getattr(x, "id", None),
+        id_getter: Callable[[TModel], Optional[int | str]
+                            ] = lambda x: getattr(x, "id", None),
         wait: bool = True,
     ):
         """Insert or update typed data objects in the collection.
@@ -110,10 +127,278 @@ class Collection(CollectionInfo, Generic[TModel]):
             wait=wait,
         )
 
+    def document(self, doc: str | PlexMediaQuery | PlexMediaPayload) -> Document:
+        """Create a document representation of the knowledge base."""
+        return Document(
+            text=doc if isinstance(
+                doc, str) else PlexMediaPayload.document(doc),
+            model=self.model,
+            options={"cuda": True},
+        )
+
     async def point_ids(self) -> list[ExtendedPointId]:
         """Retrieve all point IDs from the collection."""
         results = await self.qdrant_client.query_points(collection_name=self.name, limit=50000)
         return [point.id for point in results.points]
+
+    async def find_media(
+        self,
+        similar_to: Annotated[
+            Optional[str],
+            Field(
+                default=None,
+                title="Similarity Title Anchor Filter",
+                description="The title of another media to use as a similarity anchor for the query: similar genres, plots, synopsis. etc/",
+            ),
+        ] = None,
+        with_genre: Annotated[
+            Optional[list[str] | str],
+            Field(
+                default=None,
+                title="Genres",
+                description="Query for media that is categorized by these genres.",
+            ),
+        ] = None,
+        directed_by: Annotated[
+            Optional[list[str] | str],
+            Field(
+                default=None,
+                title="Directors",
+                description="Query for media that was directed by these individuals.",
+            ),
+        ] = None,
+        written_by: Annotated[
+            Optional[list[str] | str],
+            Field(
+                default=None,
+                title="Writers",
+                description="Query for media that was written by these individuals.",
+            ),
+        ] = None,
+        starring: Annotated[
+            Optional[list[str] | str],
+            Field(
+                default=None,
+                title="Actors",
+                description="Query for media that the following individuals act in.",
+            ),
+        ] = None,
+        summary: Annotated[
+            Optional[str],
+            Field(
+                default=None,
+                title="Plot",
+                description="Query for media with similar plots.",
+            ),
+        ] = None,
+        aired_before: Annotated[
+            Optional[date],
+            Field(
+                default=None,
+                title="Aired Before",
+                description="Query for media aired before: <date> or <int> days ago",
+            ),
+        ] = None,
+        aired_after: Annotated[
+            Optional[date],
+            Field(
+                default=None,
+                title="Aired After",
+                description="Query for media that aired after: <date> or <int> days ago",
+            ),
+        ] = None,
+        series: Annotated[
+            Optional[str],
+            Field(
+                default=None,
+                title="Series",
+                description="Query for media that is part of this series.",
+            ),
+        ] = None,
+        season: Annotated[
+            Optional[list[int] | int],
+            Field(
+                default=None,
+                title="Seasons",
+                description="Query for media with these season number.",
+            ),
+        ] = None,
+        episode: Annotated[
+            Optional[list[int] | int],
+            Field(
+                default=None,
+                title="Episodes",
+                description="Query for media with these episode numbers.",
+            ),
+        ] = None,
+        rating_min: Annotated[
+            Optional[float],
+            Field(
+                default=None,
+                title="Minimum Rating",
+                description="Query for media with a minimum rating.",
+            ),
+        ] = None,
+        rating_max: Annotated[
+            Optional[float],
+            Field(
+                default=None,
+                title="Maximum Rating",
+                description="Query for media with a maximum rating.",
+            ),
+        ] = None,
+        watched: Annotated[
+            Optional[bool],
+            Field(
+                default=None,
+                title="Watched Status",
+                description="Query for media that has or has not been watched.",
+            ),
+        ] = None,
+        limit: Annotated[
+            Optional[int],
+            Field(
+                default=None,
+                title="Limit",
+                description="Query for a maximum number of results.",
+            ),
+        ] = None,
+        offset: Annotated[
+            Optional[int],
+            Field(
+                default=None,
+                title="Offset",
+                description="Query for the number of results to skip.",
+            ),
+        ] = None,
+        theme_or_story: Annotated[
+            Optional[str],
+            Field(
+                default=None,
+                title="Theme or story",
+                description="Query based on theme, story or other vague characteristics.",
+                examples=[
+                    "What's that episode where a journalist, an artist, a musician are invited to a billionaire's house and there's a meteor at the end?"
+                ],
+            ),
+        ] = None,
+    ) -> MediaSearchResponse:
+        """Find media items (movies or episodes) based on various criteria."""
+        query_filter: Filter | None = None
+        context = ExplainContext()
+        query = ""
+        if query_filter := build_filters(
+            genres=with_genre,
+            directors=directed_by,
+            writers=written_by,
+            actors=starring,
+            aired_date=MinMax(
+                minimum=aired_after,
+                maximum=aired_before,
+            ),
+            series=series,
+            season=season,
+            episode=episode,
+            rating=MinMax(minimum=rating_min, maximum=rating_max),
+            watched=watched,
+        ):
+            context.outer_filter = query_filter
+
+        if similar_to:
+            if theme_or_story:
+                context.prefetch = Prefetch(
+                    prefetch=context.prefetch,
+                    query=self.document(theme_or_story),
+                )
+            context.query_kind = "similar"
+            context.positive_point_ids = [
+                p.id for p in await self.filter_points(filters=PlexMediaQuery(title=similar_to))
+            ]
+            if context.positive_point_ids:
+                context.query = RecommendQuery(
+                    recommend=RecommendInput(
+                        positive=cast(list[VectorInput],
+                                      context.positive_point_ids)
+                    )
+                )
+                if context.outer_filter:
+                    context.outer_filter = Filter(
+                        must=context.outer_filter.must if context.outer_filter.must else [],
+                        must_not=[
+                            *cast(
+                                list["Condition"],
+                                (
+                                    context.outer_filter.must_not
+                                    if context.outer_filter.must_not
+                                    else []
+                                ),
+                            ),
+                            FieldCondition(
+                                key="title",
+                                match=MatchValue(value=similar_to),
+                            ),
+                        ],
+                        should=(
+                            context.outer_filter.should if context.outer_filter.should else []),
+                    )
+                else:
+                    context.outer_filter = Filter(
+                        must_not=[
+                            FieldCondition(
+                                key="title",
+                                match=MatchValue(value=similar_to),
+                            )
+                        ]
+                    )
+            else:
+                query = similar_to
+        elif theme_or_story:
+            context.query = self.document(theme_or_story)
+
+        if summary:
+            context.prefetch = Prefetch(
+                prefetch=context.prefetch,
+                query=sparse_from_text(summary),
+                using="sparse",
+            )
+            query = query + " " + summary
+
+        context.query = self.document(query)
+
+        results = await self.query_points(
+            context.prefetch,
+            query=context.query,
+            limit=(limit if limit is not None else 10),
+            offset=(offset if offset is not None else 0),
+        )
+
+        must = cast(
+            list[Condition],
+            context.outer_filter.must if context.outer_filter is not None else [],
+        )
+        should = cast(
+            list[Condition],
+            context.outer_filter.should if context.outer_filter is not None else [],
+        )
+        return MediaSearchResponse(
+            results=[
+                point_to_media_result(
+                    PlexMediaPayload,
+                    point,
+                    context,
+                )
+                for point in results
+            ],
+            total=len(results),
+            used_intent="auto",
+            used_scope="",
+            diagnostics=Diagnostics(
+                retrieval=Retrieval(dense_weight=1.0, sparse_weight=0.0),
+                reranker=None,
+                filters_applied=len(must or []) > 0 or len(should or []) > 0,
+                fallback_used=context.query is not None,
+            ),
+        )
 
     async def filter_points(
         self,
@@ -139,28 +424,35 @@ class Collection(CollectionInfo, Generic[TModel]):
         if filters.directors:
             musts.extend(
                 [
-                    FieldCondition(key="directors", match=MatchValue(value=director))
+                    FieldCondition(key="directors",
+                                   match=MatchValue(value=director))
                     for director in filters.directors
                 ]
             )
         if filters.writers:
             musts.extend(
                 [
-                    FieldCondition(key="writers", match=MatchValue(value=writer))
+                    FieldCondition(
+                        key="writers", match=MatchValue(value=writer))
                     for writer in filters.writers
                 ]
             )
         if filters.title:
-            musts.append(FieldCondition(key="title", match=MatchText(text=filters.title)))
+            musts.append(FieldCondition(
+                key="title", match=MatchText(text=filters.title)))
         if filters.summary:
-            musts.append(FieldCondition(key="summary", match=MatchPhrase(phrase=filters.summary)))
+            musts.append(FieldCondition(
+                key="summary", match=MatchPhrase(phrase=filters.summary)))
         if filters.season:
-            musts.append(FieldCondition(key="season", match=MatchValue(value=filters.season)))
+            musts.append(FieldCondition(
+                key="season", match=MatchValue(value=filters.season)))
         if filters.episode:
-            musts.append(FieldCondition(key="episode", match=MatchValue(value=filters.episode)))
+            musts.append(FieldCondition(
+                key="episode", match=MatchValue(value=filters.episode)))
         if filters.show_title:
             musts.append(
-                FieldCondition(key="show_title", match=MatchPhrase(phrase=filters.show_title))
+                FieldCondition(key="show_title", match=MatchPhrase(
+                    phrase=filters.show_title))
             )
         _LOGGER.info(
             f'Filtering points with conditions: {json.dumps({
@@ -173,9 +465,59 @@ class Collection(CollectionInfo, Generic[TModel]):
         result = await self.qdrant_client.query_points(
             collection_name=self.name, query_filter=Filter(must=musts), using="dense", limit=100
         )
-        _LOGGER.info(f"Found {len(result.points)} points matching the query and filters.")
+        _LOGGER.info(
+            f"Found {len(result.points)} points matching the query and filters.")
         _LOGGER.info(json.dumps(result.model_dump(), indent=2))
         return [DataPoint(payload_class=PlexMediaPayload, **p.model_dump()) for p in result.points]
+
+    async def query_points(
+        self,
+        prefetch: Optional[Prefetch] = None,
+        query: Optional[QueryInterface] = None,
+        filter: Optional[Filter] = None,
+        offset: int = 0,
+        limit: int = 0,
+    ) -> list[DataPoint[TModel]]:
+        """Query points in the collection with optional prefetch and filtering.
+
+        Args:
+            prefetch: Optional prefetch configuration
+            query: Optional query interface
+            filter: Optional filter to apply
+            offset: Offset for pagination
+            limit: Maximum number of results to return
+
+        Returns:
+            list[DataPoint[TModel]]: Queried data points
+        """
+        _LOGGER.info(
+            f'Filtering points with conditions: {json.dumps({
+                "collection_name": self.name,
+                "prefetch": prefetch.model_dump() if prefetch else None,
+                "query": query.model_dump() if query and isinstance(query, BaseModel) else None,
+                "using": "dense",
+                "limit": (limit if limit is not None else 10),
+                "offset": (offset if offset is not None else None),
+                "with_payload": True,
+            }, indent=2)}'
+        )
+        results = await self.qdrant_client.query_points(
+            collection_name=self.name,
+            prefetch=prefetch,
+            query=query,
+            query_filter=filter,
+            offset=offset,
+            limit=limit,
+            with_payload=True,
+        )
+        _LOGGER.info(
+            f"Found {len(results.points)} points matching the query and filters.")
+        _LOGGER.info(json.dumps(results.model_dump(), indent=2))
+        return [
+            DataPoint.model_validate(
+                {"payload_class": self.payload_class, **p.model_dump()})
+            for p in results.points
+        ]
 
     async def search(
         self,
@@ -206,22 +548,28 @@ class Collection(CollectionInfo, Generic[TModel]):
         shoulds: list[Condition] = []
         musts: list[Condition] = []
         if data.title:
-            shoulds.append(FieldCondition(key="title", match=MatchPhrase(phrase=data.title)))
+            shoulds.append(FieldCondition(
+                key="title", match=MatchPhrase(phrase=data.title)))
         if data.show_title:
             shoulds.append(
-                FieldCondition(key="show_title", match=MatchPhrase(phrase=data.show_title))
+                FieldCondition(key="show_title", match=MatchPhrase(
+                    phrase=data.show_title))
             )
         if data.genres:
             for genre in data.genres:
-                shoulds.append(FieldCondition(key="genres", match=MatchPhrase(phrase=genre)))
+                shoulds.append(FieldCondition(
+                    key="genres", match=MatchPhrase(phrase=genre)))
         if data.watched is not None:
-            musts.append(FieldCondition(key="watched", match=MatchValue(value=data.watched)))
+            musts.append(FieldCondition(
+                key="watched", match=MatchValue(value=data.watched)))
         if data.actors:
             for actor in data.actors:
-                musts.append(FieldCondition(key="actors", match=MatchPhrase(phrase=actor)))
+                musts.append(FieldCondition(
+                    key="actors", match=MatchPhrase(phrase=actor)))
         if data.directors:
             for director in data.directors:
-                musts.append(FieldCondition(key="directors", match=MatchPhrase(phrase=director)))
+                musts.append(FieldCondition(key="directors",
+                             match=MatchPhrase(phrase=director)))
         query_filter = Filter(
             must=musts if len(musts) > 0 else None,
             min_should=(
@@ -265,7 +613,8 @@ class Collection(CollectionInfo, Generic[TModel]):
                 limit=limit or 10000,
             )
             points = [
-                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate(
+                    {"payload_class": self.payload_class, **p.model_dump()})
                 for p in result.points
             ]
             if enable_rerank:
@@ -310,7 +659,8 @@ class Collection(CollectionInfo, Generic[TModel]):
             )
             # Truncate to requested limit and adapt to DataPoint
             points = [
-                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate(
+                    {"payload_class": self.payload_class, **p.model_dump()})
                 for p in fused_points[: (limit or 10000)]
             ]
             if enable_rerank:
@@ -331,7 +681,8 @@ class Collection(CollectionInfo, Generic[TModel]):
         #     else True
         # )
         doc_text = self.make_document(data)
-        query = Document(text=doc_text, model=self.model, options={"cuda": True})  # type: ignore
+        query = Document(text=doc_text, model=self.model,
+                         options={"cuda": True})  # type: ignore
         sparse = sparse_from_text(doc_text)
         vecs = []
         for x in self.qdrant_client._embed_documents([query.text], self.model):
@@ -366,10 +717,12 @@ class Collection(CollectionInfo, Generic[TModel]):
             limit=limit or 10000,
             with_payload=True,
         )
-        _LOGGER.warn(f"Qdrant query result: {json.dumps(result.model_dump(), indent=2)}")
+        _LOGGER.warn(
+            f"Qdrant query result: {json.dumps(result.model_dump(), indent=2)}")
         points = sorted(
             [
-                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate(
+                    {"payload_class": self.payload_class, **p.model_dump()})
                 for p in result.points
             ],
             key=lambda x: x.score,
@@ -431,7 +784,8 @@ class Collection(CollectionInfo, Generic[TModel]):
                 fusion_sparse_weight,
             )
             points = [
-                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate(
+                    {"payload_class": self.payload_class, **p.model_dump()})
                 for p in fused_points[: (limit or 10000)]
             ]
             if enable_rerank:
@@ -472,7 +826,8 @@ class Collection(CollectionInfo, Generic[TModel]):
         )
         points = sorted(
             [
-                DataPoint.model_validate({"payload_class": PlexMediaPayload, **p.model_dump()})
+                DataPoint.model_validate(
+                    {"payload_class": PlexMediaPayload, **p.model_dump()})
                 for p in result.points
             ],
             key=lambda x: x.score,
