@@ -1,16 +1,18 @@
-import http.client as http_client
 import argparse
+import http.client as http_client
+import logging
+import os
 import textwrap
+from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Dict, Literal, Union, cast
-from base import run_server, mcp
+
 from kagiapi import KagiClient
 from kagiapi.models import EnrichResponse
-from concurrent.futures import ThreadPoolExecutor
-from starlette.requests import Request
-from starlette.responses import Response, PlainTextResponse
-import os
-import logging
 from pydantic import Field
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse, Response
+
+from base import mcp, run_server
 
 logging.basicConfig(
     level=logging.INFO,  # Use DEBUG for more verbosity during development
@@ -115,17 +117,20 @@ async def web_search(
         return f"Error: {str(e) or repr(e)}"
 
 
-@mcp.tool(
-    name="web_topics",
-    description="Fetch topic results using the Kagi Search API.",
-    tags={"search", "web", "news"},
-)
-def get_news(
-    query: str = Field(
-        description="Concise, keyword-focused search queries. Include essential context within each query for standalone use."
-    ),
+@mcp.custom_route(path="/get_news", methods=["POST", "GET"])
+async def get_news_handler(request: Request) -> Response:
+    query = request.query_params.get("query", (await request.json()).get("query", ""))
+    return PlainTextResponse(content=await get_news(query))
+
+
+async def get_news(
+    query: Annotated[
+        str,
+        Field(
+            description="Concise, keyword-focused search queries. Include essential context within each query for standalone use."
+        ),
+    ],
 ) -> str:
-    """Fetch web results based on one or more queries using the Kagi Search API. Use for general search and when the user explicitly tells you to 'fetch' results/information. Results are from all queries given. They are numbered continuously, so that a user may be able to refer to a result by a specific number."""
     try:
         if not query:
             raise ValueError("Search called with no queries.")
@@ -155,6 +160,22 @@ def get_news(
     except Exception as e:
         logger.exception("Error in kagi_search_fetch: %s", e)
         return f"Error: {str(e) or repr(e)}"
+
+
+@mcp.tool(
+    name="web_topics",
+    description="Fetch topic results using the Kagi Search API.",
+    tags={"search", "web", "news"},
+)
+async def get_news_tool(
+    query: str = Field(
+        description="Concise, keyword-focused search queries. Include essential context within each query for standalone use."
+    ),
+) -> str:
+    """Fetch web results based on one or more queries using the Kagi Search API. Use for general search and when the user explicitly tells you to 'fetch' results/information. Results are from all queries given. They are numbered continuously, so that a user may be able to refer to a result by a specific number."""
+    return await get_news(
+        query,
+    )
 
 
 def format_search_results(queries: list[str], responses) -> str:
