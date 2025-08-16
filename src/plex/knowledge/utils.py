@@ -1,38 +1,37 @@
 import hashlib
-from datetime import date, timedelta
+import logging
 import math
 import re
 from collections import Counter
+from datetime import date, timedelta
 from typing import Iterable, Optional, Sequence, Tuple, Type, cast
 
 from qdrant_client.async_qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Condition,
-    Filter,
     DatetimeRange,
-    Range,
-    SparseVector,
     Distance,
-    KeywordIndexParams,
-    FieldCondition,
-    KeywordIndexType,
-    PayloadSchemaType,
-    ScoredPoint,
     Document,
+    FieldCondition,
+    Filter,
+    KeywordIndexParams,
+    KeywordIndexType,
     MatchAny,
     MatchValue,
     MinShould,
+    PayloadSchemaType,
+    Range,
+    ScoredPoint,
     Snowball,
     SnowballLanguage,
     SnowballParams,
+    SparseVector,
     SparseVectorParams,
     TextIndexParams,
     TextIndexType,
     TokenizerType,
     VectorParams,
 )
-
-import logging
 
 from plex.knowledge.types import (
     DataPoint,
@@ -92,8 +91,7 @@ def sparse_from_text(text: str) -> SparseVector:
     index_to_val: dict[int, float] = {}
     for tok, tf in counts.items():
         h = (
-            int.from_bytes(hashlib.blake2b(tok.encode("utf-8"),
-                           digest_size=8).digest(), "little")
+            int.from_bytes(hashlib.blake2b(tok.encode("utf-8"), digest_size=8).digest(), "little")
             % 2147483647
         )
         val = 1.0 + math.log(tf)
@@ -124,16 +122,14 @@ async def ensure_collection(
     dim: int,
 ) -> None:
     """Create the collection if it doesn't exist, with dense + sparse vectors."""
-    _LOGGER.warning(
-        f"Ensuring collection '{name}' exists with {dim} dimensions.")
+    _LOGGER.warning(f"Ensuring collection '{name}' exists with {dim} dimensions.")
     collections = await client.get_collections()
     if any(c.name == name for c in collections.collections):
         return
     _LOGGER.warning(f"Creating collection '{name}'")
     await client.create_collection(
         collection_name=name,
-        vectors_config={"dense": VectorParams(
-            size=dim, distance=Distance.COSINE)},
+        vectors_config={"dense": VectorParams(size=dim, distance=Distance.COSINE)},
         sparse_vectors_config={"sparse": SparseVectorParams()},
         on_disk_payload=True,
     )
@@ -235,8 +231,7 @@ def heuristic_rerank(
         base = float(getattr(dp, "score", 0.0) or 0.0)
         g = jaccard(getattr(q, "genres", None), getattr(item, "genres", None))
         c = jaccard(getattr(q, "actors", None), getattr(item, "actors", None))
-        d = jaccard(getattr(q, "directors", None),
-                    getattr(item, "directors", None))
+        d = jaccard(getattr(q, "directors", None), getattr(item, "directors", None))
         blend = 0.75 * base + 0.15 * g + 0.06 * c + 0.04 * d
         rescored.append((blend, dp))
     rescored.sort(key=lambda t: t[0], reverse=True)
@@ -267,8 +262,7 @@ def explain_match(q: PlexMediaQuery, item: PlexMediaPayload) -> Optional[str]:
         if common:
             reasons.append(f"cast overlap: {', '.join(common)}")
     if q.directors:
-        common = sorted(set(q.directors).intersection(
-            set(item.directors or [])))
+        common = sorted(set(q.directors).intersection(set(item.directors or [])))
         if common:
             reasons.append(f"director overlap: {', '.join(common)}")
     return ", ".join(reasons) or None
@@ -302,7 +296,7 @@ def title_shingles(title: Optional[str]) -> set[str]:
     # 3-gram shingles over tokens
     if len(tokens) < 3:
         return set(tokens)
-    return {" ".join(tokens[i: i + 3]) for i in range(len(tokens) - 2)}
+    return {" ".join(tokens[i : i + 3]) for i in range(len(tokens) - 2)}
 
 
 def sim_items(a: DataPoint[TModel], b: DataPoint[TModel]) -> float:
@@ -462,8 +456,7 @@ def _explain_condition(
             return ok, f"{'✓' if ok else '✗'} {key} == {match['value']!r}"
         if "any" in match:
             wanted_any = _to_set(match["any"])
-            cand = _to_set(val if isinstance(val, list) else [
-                           val] if val is not None else [])
+            cand = _to_set(val if isinstance(val, list) else [val] if val is not None else [])
             ok = bool(wanted_any & cand)
             return ok, f"{'✓' if ok else '✗'} {key} intersects {sorted(wanted_any)}"
         if "phrase" in match:
@@ -471,8 +464,7 @@ def _explain_condition(
             if isinstance(val, list):
                 ok = any(wanted_phrase in _to_set(v) for v in val)
             else:
-                ok = (str(val).lower() ==
-                      wanted_phrase) if val is not None else False
+                ok = (str(val).lower() == wanted_phrase) if val is not None else False
             return ok, f"{'✓' if ok else '✗'} {key} contains {match['phrase']!r}"
 
     # range …
@@ -505,14 +497,12 @@ def _explain_filter(name: str, f: Optional[Filter], payload: PlexMediaPayload) -
         results = [
             _explain_condition(payload, c)
             for c in (
-                None if f.must is None else (
-                    f.must if isinstance(f.must, list) else [f.must])
+                None if f.must is None else (f.must if isinstance(f.must, list) else [f.must])
             )
             or []
         ]
         ok = all(x for x, _ in results)
-        notes.append(f"{'PASS' if ok else 'FAIL'} must: " +
-                     "; ".join(msg for _, msg in results))
+        notes.append(f"{'PASS' if ok else 'FAIL'} must: " + "; ".join(msg for _, msg in results))
     if f.should:
         results = [
             _explain_condition(payload, c)
@@ -526,8 +516,7 @@ def _explain_filter(name: str, f: Optional[Filter], payload: PlexMediaPayload) -
         # should is advisory; count hits
         hits = sum(1 for ok, _ in results if ok)
         notes.append(
-            f"{hits}/{len(results)} should matched: " +
-            "; ".join(msg for _, msg in results)
+            f"{hits}/{len(results)} should matched: " + "; ".join(msg for _, msg in results)
         )
     if f.must_not:
         results = [
@@ -588,8 +577,7 @@ def explain_match_from_context(
     lines: list[str] = []
 
     # Header
-    lines.append(
-        f"{p.title} ({p.year})  — score={result.score:.4f} [{ctx.score_interpretation}]")
+    lines.append(f"{p.title} ({p.year})  — score={result.score:.4f} [{ctx.score_interpretation}]")
     lines.append(
         f"type={p.type}  duration={p.duration_seconds}s  content_rating={p.content_rating or 'N/A'}"
     )
@@ -612,8 +600,7 @@ def explain_match_from_context(
     # Query kind
     if ctx.query_kind == "recommend":
         if ctx.positive_point_ids:
-            lines.append(
-                f"• Ranked by similarity to positive IDs: {ctx.positive_point_ids}")
+            lines.append(f"• Ranked by similarity to positive IDs: {ctx.positive_point_ids}")
         else:
             lines.append("• Ranked by recommend() style query (no IDs listed)")
     elif ctx.query_kind == "text":
@@ -634,8 +621,7 @@ def explain_match_from_context(
     # Content snippets that help LLM justify to users
     # keep short to avoid turning this into a novel
     if p.genres:
-        lines.append("• Genres: " +
-                     ", ".join(sorted(set(p.genres), key=str.lower)))
+        lines.append("• Genres: " + ", ".join(sorted(set(p.genres), key=str.lower)))
     if p.actors:
         lines.append(
             "• Actors: "
@@ -643,11 +629,9 @@ def explain_match_from_context(
             + ("…" if len(p.actors) > 8 else "")
         )
     if p.directors:
-        lines.append("• Directors: " +
-                     ", ".join(sorted(set(p.directors), key=str.lower)))
+        lines.append("• Directors: " + ", ".join(sorted(set(p.directors), key=str.lower)))
     if p.writers:
-        lines.append("• Writers: " +
-                     ", ".join(sorted(set(p.writers), key=str.lower)))
+        lines.append("• Writers: " + ", ".join(sorted(set(p.writers), key=str.lower)))
 
     return "\n".join(lines)
 
@@ -696,6 +680,7 @@ def point_to_media_result(
 
 
 def build_filters(
+    media_type: str,
     genres: Optional[list[str] | str] = None,
     directors: Optional[list[str] | str] = None,
     writers: Optional[list[str] | str] = None,
@@ -725,8 +710,7 @@ def build_filters(
             [
                 FieldCondition(
                     key="directors",
-                    match=MatchAny(any=director if isinstance(
-                        director, list) else [director]),
+                    match=MatchAny(any=director if isinstance(director, list) else [director]),
                 )
                 for director in directors
             ]
@@ -736,8 +720,7 @@ def build_filters(
             [
                 FieldCondition(
                     key="writers",
-                    match=MatchAny(any=writer if isinstance(
-                        writer, list) else [writer]),
+                    match=MatchAny(any=writer if isinstance(writer, list) else [writer]),
                 )
                 for writer in writers
             ]
@@ -768,12 +751,13 @@ def build_filters(
             )
         if after or before:
             musts.append(
-                FieldCondition(key="aired_date",
-                               range=DatetimeRange(gte=after, lte=before))
+                FieldCondition(key="aired_date", range=DatetimeRange(gte=after, lte=before))
             )
     if series:
-        musts.append(FieldCondition(
-            key="season", match=MatchValue(value=series)))
+        if media_type.startswith("episode"):
+            musts.append(FieldCondition(key="show_title", match=MatchValue(value=series)))
+        else:
+            musts.append(FieldCondition(key="collection", match=MatchValue(value=series)))
     if season:
         shoulds.extend(
             [
@@ -790,14 +774,11 @@ def build_filters(
         )
     if rating:
         if rating.minimum:
-            musts.append(FieldCondition(
-                key="rating", range=Range(gte=rating.minimum)))
+            musts.append(FieldCondition(key="rating", range=Range(gte=rating.minimum)))
         if rating.maximum:
-            musts.append(FieldCondition(
-                key="rating", range=Range(lte=rating.maximum)))
+            musts.append(FieldCondition(key="rating", range=Range(lte=rating.maximum)))
     if watched:
-        musts.append(FieldCondition(
-            key="watched", match=MatchValue(value=watched)))
+        musts.append(FieldCondition(key="watched", match=MatchValue(value=watched)))
     if len(musts) == 0 and len(shoulds) == 0 and min_should is None:
         return None
     return Filter(

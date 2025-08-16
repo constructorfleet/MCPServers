@@ -1,7 +1,7 @@
 import asyncio
-from datetime import date
 import json
 import logging
+from datetime import date
 from typing import Annotated, Callable, Generic, Optional, Type, cast
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -76,8 +76,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             points: Points to upsert
             wait: Whether to wait for the operation to complete
         """
-        _LOGGER.info(
-            f"Upserting points to'{self.name}': {len(points)}")  # type: ignore
+        _LOGGER.info(f"Upserting points to'{self.name}': {len(points)}")  # type: ignore
         # await batch_map(
         #     points,
         #     self.qdrant_client.upsert(
@@ -90,8 +89,7 @@ class Collection(CollectionInfo, Generic[TModel]):
     async def upsert_data(
         self,
         data: list[TModel],
-        id_getter: Callable[[TModel], Optional[int | str]
-                            ] = lambda x: getattr(x, "id", None),
+        id_getter: Callable[[TModel], Optional[int | str]] = lambda x: getattr(x, "id", None),
         wait: bool = True,
     ):
         """Insert or update typed data objects in the collection.
@@ -130,8 +128,7 @@ class Collection(CollectionInfo, Generic[TModel]):
     def document(self, doc: str | PlexMediaQuery | PlexMediaPayload) -> Document:
         """Create a document representation of the knowledge base."""
         return Document(
-            text=doc if isinstance(
-                doc, str) else PlexMediaPayload.document(doc),
+            text=doc if isinstance(doc, str) else PlexMediaPayload.document(doc),
             model=self.model,
             options={"cuda": True},
         )
@@ -288,6 +285,7 @@ class Collection(CollectionInfo, Generic[TModel]):
         context = ExplainContext()
         query = ""
         if query_filter := build_filters(
+            media_type=self.name[:-1],
             genres=with_genre,
             directors=directed_by,
             writers=written_by,
@@ -305,7 +303,9 @@ class Collection(CollectionInfo, Generic[TModel]):
             context.outer_filter = query_filter
 
         if similar_to:
+            _LOGGER.info("In similar_to %s", similar_to)
             if theme_or_story:
+                _LOGGER.info("In similar_to %s in theme %s", similar_to, theme_or_story)
                 context.prefetch = Prefetch(
                     prefetch=context.prefetch,
                     query=self.document(theme_or_story),
@@ -317,8 +317,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             if context.positive_point_ids:
                 context.query = RecommendQuery(
                     recommend=RecommendInput(
-                        positive=cast(list[VectorInput],
-                                      context.positive_point_ids)
+                        positive=cast(list[VectorInput], context.positive_point_ids)
                     )
                 )
                 if context.outer_filter:
@@ -338,8 +337,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                                 match=MatchValue(value=similar_to),
                             ),
                         ],
-                        should=(
-                            context.outer_filter.should if context.outer_filter.should else []),
+                        should=(context.outer_filter.should if context.outer_filter.should else []),
                     )
                 else:
                     context.outer_filter = Filter(
@@ -353,9 +351,11 @@ class Collection(CollectionInfo, Generic[TModel]):
             else:
                 query = similar_to
         elif theme_or_story:
+            _LOGGER.info("In theme_or_story %s", theme_or_story)
             context.query = self.document(theme_or_story)
 
         if summary:
+            _LOGGER.info("In summary %s", summary)
             context.prefetch = Prefetch(
                 prefetch=context.prefetch,
                 query=sparse_from_text(summary),
@@ -363,11 +363,13 @@ class Collection(CollectionInfo, Generic[TModel]):
             )
             query = query + " " + summary
 
-        context.query = self.document(query)
+        if query:
+            context.query = self.document(query)
 
         results = await self.query_points(
             context.prefetch,
             query=context.query,
+            filter=context.outer_filter,
             limit=(limit if limit is not None else 10),
             offset=(offset if offset is not None else 0),
         )
@@ -424,35 +426,28 @@ class Collection(CollectionInfo, Generic[TModel]):
         if filters.directors:
             musts.extend(
                 [
-                    FieldCondition(key="directors",
-                                   match=MatchValue(value=director))
+                    FieldCondition(key="directors", match=MatchValue(value=director))
                     for director in filters.directors
                 ]
             )
         if filters.writers:
             musts.extend(
                 [
-                    FieldCondition(
-                        key="writers", match=MatchValue(value=writer))
+                    FieldCondition(key="writers", match=MatchValue(value=writer))
                     for writer in filters.writers
                 ]
             )
         if filters.title:
-            musts.append(FieldCondition(
-                key="title", match=MatchText(text=filters.title)))
+            musts.append(FieldCondition(key="title", match=MatchText(text=filters.title)))
         if filters.summary:
-            musts.append(FieldCondition(
-                key="summary", match=MatchPhrase(phrase=filters.summary)))
+            musts.append(FieldCondition(key="summary", match=MatchPhrase(phrase=filters.summary)))
         if filters.season:
-            musts.append(FieldCondition(
-                key="season", match=MatchValue(value=filters.season)))
+            musts.append(FieldCondition(key="season", match=MatchValue(value=filters.season)))
         if filters.episode:
-            musts.append(FieldCondition(
-                key="episode", match=MatchValue(value=filters.episode)))
+            musts.append(FieldCondition(key="episode", match=MatchValue(value=filters.episode)))
         if filters.show_title:
             musts.append(
-                FieldCondition(key="show_title", match=MatchPhrase(
-                    phrase=filters.show_title))
+                FieldCondition(key="show_title", match=MatchPhrase(phrase=filters.show_title))
             )
         _LOGGER.info(
             f'Filtering points with conditions: {json.dumps({
@@ -465,8 +460,7 @@ class Collection(CollectionInfo, Generic[TModel]):
         result = await self.qdrant_client.query_points(
             collection_name=self.name, query_filter=Filter(must=musts), using="dense", limit=100
         )
-        _LOGGER.info(
-            f"Found {len(result.points)} points matching the query and filters.")
+        _LOGGER.info(f"Found {len(result.points)} points matching the query and filters.")
         _LOGGER.info(json.dumps(result.model_dump(), indent=2))
         return [DataPoint(payload_class=PlexMediaPayload, **p.model_dump()) for p in result.points]
 
@@ -495,6 +489,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                 "collection_name": self.name,
                 "prefetch": prefetch.model_dump() if prefetch else None,
                 "query": query.model_dump() if query and isinstance(query, BaseModel) else None,
+                "filter": filter.model_dump() if filter else None,
                 "using": "dense",
                 "limit": (limit if limit is not None else 10),
                 "offset": (offset if offset is not None else None),
@@ -507,15 +502,14 @@ class Collection(CollectionInfo, Generic[TModel]):
             query=query,
             query_filter=filter,
             offset=offset,
+            using="dense",
             limit=limit,
             with_payload=True,
         )
-        _LOGGER.info(
-            f"Found {len(results.points)} points matching the query and filters.")
+        _LOGGER.info(f"Found {len(results.points)} points matching the query and filters.")
         _LOGGER.info(json.dumps(results.model_dump(), indent=2))
         return [
-            DataPoint.model_validate(
-                {"payload_class": self.payload_class, **p.model_dump()})
+            DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
             for p in results.points
         ]
 
@@ -548,28 +542,22 @@ class Collection(CollectionInfo, Generic[TModel]):
         shoulds: list[Condition] = []
         musts: list[Condition] = []
         if data.title:
-            shoulds.append(FieldCondition(
-                key="title", match=MatchPhrase(phrase=data.title)))
+            shoulds.append(FieldCondition(key="title", match=MatchPhrase(phrase=data.title)))
         if data.show_title:
             shoulds.append(
-                FieldCondition(key="show_title", match=MatchPhrase(
-                    phrase=data.show_title))
+                FieldCondition(key="show_title", match=MatchPhrase(phrase=data.show_title))
             )
         if data.genres:
             for genre in data.genres:
-                shoulds.append(FieldCondition(
-                    key="genres", match=MatchPhrase(phrase=genre)))
+                shoulds.append(FieldCondition(key="genres", match=MatchPhrase(phrase=genre)))
         if data.watched is not None:
-            musts.append(FieldCondition(
-                key="watched", match=MatchValue(value=data.watched)))
+            musts.append(FieldCondition(key="watched", match=MatchValue(value=data.watched)))
         if data.actors:
             for actor in data.actors:
-                musts.append(FieldCondition(
-                    key="actors", match=MatchPhrase(phrase=actor)))
+                musts.append(FieldCondition(key="actors", match=MatchPhrase(phrase=actor)))
         if data.directors:
             for director in data.directors:
-                musts.append(FieldCondition(key="directors",
-                             match=MatchPhrase(phrase=director)))
+                musts.append(FieldCondition(key="directors", match=MatchPhrase(phrase=director)))
         query_filter = Filter(
             must=musts if len(musts) > 0 else None,
             min_should=(
@@ -613,8 +601,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                 limit=limit or 10000,
             )
             points = [
-                DataPoint.model_validate(
-                    {"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
                 for p in result.points
             ]
             if enable_rerank:
@@ -659,8 +646,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             )
             # Truncate to requested limit and adapt to DataPoint
             points = [
-                DataPoint.model_validate(
-                    {"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
                 for p in fused_points[: (limit or 10000)]
             ]
             if enable_rerank:
@@ -681,8 +667,7 @@ class Collection(CollectionInfo, Generic[TModel]):
         #     else True
         # )
         doc_text = self.make_document(data)
-        query = Document(text=doc_text, model=self.model,
-                         options={"cuda": True})  # type: ignore
+        query = Document(text=doc_text, model=self.model, options={"cuda": True})  # type: ignore
         sparse = sparse_from_text(doc_text)
         vecs = []
         for x in self.qdrant_client._embed_documents([query.text], self.model):
@@ -717,12 +702,10 @@ class Collection(CollectionInfo, Generic[TModel]):
             limit=limit or 10000,
             with_payload=True,
         )
-        _LOGGER.warn(
-            f"Qdrant query result: {json.dumps(result.model_dump(), indent=2)}")
+        _LOGGER.warn(f"Qdrant query result: {json.dumps(result.model_dump(), indent=2)}")
         points = sorted(
             [
-                DataPoint.model_validate(
-                    {"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
                 for p in result.points
             ],
             key=lambda x: x.score,
@@ -784,8 +767,7 @@ class Collection(CollectionInfo, Generic[TModel]):
                 fusion_sparse_weight,
             )
             points = [
-                DataPoint.model_validate(
-                    {"payload_class": self.payload_class, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": self.payload_class, **p.model_dump()})
                 for p in fused_points[: (limit or 10000)]
             ]
             if enable_rerank:
@@ -826,8 +808,7 @@ class Collection(CollectionInfo, Generic[TModel]):
         )
         points = sorted(
             [
-                DataPoint.model_validate(
-                    {"payload_class": PlexMediaPayload, **p.model_dump()})
+                DataPoint.model_validate({"payload_class": PlexMediaPayload, **p.model_dump()})
                 for p in result.points
             ],
             key=lambda x: x.score,
