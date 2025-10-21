@@ -11,10 +11,11 @@ import argparse
 import asyncio
 import logging
 import os
+import json
 from enum import StrEnum
 
 # --- Import Statements ---
-from typing import Annotated, Callable, List, Literal, Optional
+from typing import Annotated, Callable, Iterable, List, Literal, Optional, Mapping
 
 from mcp.types import ToolAnnotations
 from plexapi.base import PlexSession as PlexAPISession
@@ -70,7 +71,21 @@ def match_client_name(
     """
     if not requested_client or not candidates or not filter:
         return None
-    candidate_map = {c.title: c for c in candidates if filter(c)}
+    filtered_candidates = [client for client in candidates if filter(client)]
+    if not filtered_candidates:
+        return None
+
+    alias_targets = _resolve_alias_targets(requested_client)
+    if alias_targets:
+        for target in alias_targets:
+            for candidate in filtered_candidates:
+                if _alias_matches(candidate, target):
+                    return candidate
+        requested_client = alias_targets[0]
+
+    candidate_map = {c.title: c for c in filtered_candidates}
+    if not candidate_map:
+        return None
     choice, score, _ = process.extractOne(
         requested_client, list(candidate_map.keys()), score_cutoff=60
     )
@@ -80,7 +95,63 @@ def match_client_name(
 # --- Global Singleton and Access Functions ---
 plex_api: PlexAPI | None = None
 plex_search: PlexTextSearch | None = None
+player_aliases: dict[str, list[str]] = {}
 
+
+def _normalize_alias_values(value: object) -> list[str]:
+    if isinstance(value, str):
+        candidate = value.strip()
+        return [candidate] if candidate else []
+    if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+        values: list[str] = []
+        for item in value:
+            text = str(item).strip()
+            if text:
+                values.append(text)
+        return values
+    candidate = str(value).strip()
+    return [candidate] if candidate else []
+
+
+def set_player_aliases(aliases: Mapping[str, object]) -> None:
+    player_aliases.clear()
+    for alias, raw_values in aliases.items():
+        alias_key = alias.strip().lower()
+        if not alias_key:
+            continue
+        values = _normalize_alias_values(raw_values)
+        if values:
+            player_aliases[alias_key] = values
+
+
+def _resolve_alias_targets(requested_client: str) -> list[str]:
+    if not requested_client:
+        return []
+    return player_aliases.get(requested_client.strip().lower(), [])
+
+
+def _alias_matches(client: PlexAPIClient, target: str) -> bool:
+    target_lower = target.lower()
+    title = getattr(client, "title", "")
+    machine_id = getattr(client, "machineIdentifier", "")
+    return title.lower() == target_lower or machine_id.lower() == target_lower
+
+
+
+def configure_player_aliases_from_env(config: str | None) -> None:
+    set_player_aliases({})
+    if not config:
+        return
+    try:
+        alias_data = json.loads(config)
+    except json.JSONDecodeError:
+        logger.warning("PLEX_PLAYER_ALIASES contains invalid JSON; ignoring aliases.")
+        return
+    if not isinstance(alias_data, dict):
+        logger.warning("PLEX_PLAYER_ALIASES must be a JSON object; ignoring aliases.")
+        return
+    set_player_aliases(alias_data)
+    logger.info("Loaded %d player aliases from configuration.", len(player_aliases))
 
 def get_plex_search() -> PlexTextSearch:
     if not plex_api:
@@ -750,6 +821,9 @@ async def on_run_server(args):
     check_args(args)
 
     global plex_api, plex_search
+
+    configure_player_aliases_from_env(os.environ.get("PLEX_PLAYER_ALIASES"))
+
     plex_api = PlexAPI(os.environ["PLEX_SERVER_URL"], os.environ["PLEX_TOKEN"])
     knowledge_base = KnowledgeBase(
         os.environ["MODEL_NAME"], os.environ["QDRANT_HOST"], int(

@@ -1,6 +1,9 @@
 import argparse
+import json
 import os
-from typing import Callable
+from pathlib import Path
+from typing import Callable, Iterable
+
 from base import EnvDefault
 
 def add_plex_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -19,6 +22,17 @@ def add_plex_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         action=EnvDefault,
         envvar="PLEX_TOKEN",
         help="Authentication token for accessing the Plex server",
+    )
+    parser.add_argument(
+        "--player-alias",
+        action="append",
+        metavar="ALIAS=TARGET",
+        help="Define an alias for a Plex client (can be used multiple times).",
+    )
+    parser.add_argument(
+        "--player-alias-file",
+        type=str,
+        help="Path to a JSON file containing player alias mappings.",
     )
     return parser
 
@@ -64,6 +78,63 @@ def add_sleep_arg(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         help="Sleep duration between tasks in minutes (default: 60)",
     )
     return parser
+
+def _normalize_alias_targets(raw: object) -> list[str]:
+    if isinstance(raw, str):
+        value = raw.strip()
+        return [value] if value else []
+    if isinstance(raw, Iterable):
+        values: list[str] = []
+        for item in raw:
+            text = str(item).strip()
+            if text:
+                values.append(text)
+        return values
+    raise TypeError("Alias values must be a string or iterable of strings")
+
+
+def _merge_alias_data(target: dict[str, list[str]], updates: dict[str, object]) -> None:
+    for alias, raw_values in updates.items():
+        alias_key = alias.strip()
+        if not alias_key:
+            continue
+        try:
+            values = _normalize_alias_targets(raw_values)
+        except TypeError as exc:  # pragma: no cover - defensive
+            raise ValueError(f"Invalid alias mapping for '{alias_key}'") from exc
+        if not values:
+            continue
+        existing = target.setdefault(alias_key, [])
+        for value in values:
+            if value not in existing:
+                existing.append(value)
+
+
+def _load_alias_file(file_path: str) -> dict[str, list[str]]:
+    data = json.loads(Path(file_path).read_text())
+    if not isinstance(data, dict):
+        raise ValueError("Alias file must contain a JSON object of alias mappings")
+    alias_data: dict[str, list[str]] = {}
+    for alias, values in data.items():
+        _merge_alias_data(alias_data, {alias: values})
+    return alias_data
+
+
+def _parse_alias_pairs(pairs: Iterable[str]) -> dict[str, list[str]]:
+    alias_map: dict[str, list[str]] = {}
+    for pair in pairs:
+        if "=" not in pair:
+            raise ValueError("Player aliases must be provided as ALIAS=TARGET")
+        alias, target = pair.split("=", 1)
+        alias_key = alias.strip()
+        target_value = target.strip()
+        if not alias_key or not target_value:
+            raise ValueError("Player aliases must include both alias and target name")
+        alias_map.setdefault(alias_key, [])
+        if target_value not in alias_map[alias_key]:
+            alias_map[alias_key].append(target_value)
+    return alias_map
+
 
 def add_args(plex: bool = True, qdrant: bool = True, sleep: bool = True) -> Callable[[argparse.ArgumentParser], argparse.ArgumentParser]:
     """
@@ -112,3 +183,22 @@ def check_args(args):
                 "Model name must be provided via --model-name or MODEL_NAME environment variable."
             )
         os.environ["MODEL_NAME"] = args.model_name
+
+    alias_map: dict[str, list[str]] = {}
+    existing_aliases = os.environ.get("PLEX_PLAYER_ALIASES")
+    if existing_aliases:
+        try:
+            env_aliases = json.loads(existing_aliases)
+        except json.JSONDecodeError as exc:
+            raise ValueError("PLEX_PLAYER_ALIASES must be valid JSON") from exc
+        if not isinstance(env_aliases, dict):
+            raise ValueError("PLEX_PLAYER_ALIASES must be a JSON object")
+        _merge_alias_data(alias_map, env_aliases)
+    if getattr(args, "player_alias_file", None):
+        alias_file_map = _load_alias_file(args.player_alias_file)
+        _merge_alias_data(alias_map, alias_file_map)
+    if getattr(args, "player_alias", None):
+        alias_pairs = _parse_alias_pairs(args.player_alias)
+        _merge_alias_data(alias_map, alias_pairs)
+    if alias_map:
+        os.environ["PLEX_PLAYER_ALIASES"] = json.dumps(alias_map)
