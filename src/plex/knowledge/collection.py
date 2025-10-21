@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 from datetime import date
 from typing import Annotated, Callable, Generic, Optional, Type, cast
 
@@ -522,8 +523,8 @@ class Collection(CollectionInfo, Generic[TModel]):
         enable_rerank: bool = False,
         enable_diversity: bool = False,
         enable_two_pass_fusion: bool = False,
-        fusion_dense_weight: float = 0.7,
-        fusion_sparse_weight: float = 0.3,
+        fusion_dense_weight: float | None = None,
+        fusion_sparse_weight: float | None = None,
         reranker_name: str = "heuristic-v1",
     ) -> list[DataPoint[TModel]]:
         """Search the collection using structured media data.
@@ -539,6 +540,9 @@ class Collection(CollectionInfo, Generic[TModel]):
         Returns:
             list[DataPoint[TModel]]: Search results sorted by relevance
         """
+        fusion_dense_weight = fusion_dense_weight if fusion_dense_weight is not None else float(os.environ.get("FUSION_DENSE_WEIGHT", "0.7"))
+        fusion_sparse_weight = fusion_sparse_weight if fusion_sparse_weight is not None else float(os.environ.get("FUSION_SPARSE_WEIGHT", "0.3"))
+
         shoulds: list[Condition] = []
         musts: list[Condition] = []
         if data.title:
@@ -597,7 +601,10 @@ class Collection(CollectionInfo, Generic[TModel]):
             result = await self.qdrant_client.query_points(
                 collection_name=self.name,
                 prefetch=prefetch,
-                query=FusionQuery(fusion=Fusion.RRF),
+                query=FusionQuery(
+                    fusion=Fusion.RRF,
+                    weights={"dense": fusion_dense_weight, "sparse": fusion_sparse_weight},
+                ),
                 limit=limit or 10000,
             )
             points = [
@@ -693,12 +700,7 @@ class Collection(CollectionInfo, Generic[TModel]):
             collection_name=self.name,
             query=vecs[0],  # sparse if use_sparse else query,
             using="dense",  # "sparse" if use_sparse else "dense",
-            # prefetch=(
-            #     Prefetch(query=sparse, using="sparse")
-            #     if not use_sparse and sparse is not None
-            #     else None
-            # ),
-            # query_filter=query_filter,
+            prefetch=Prefetch(query=sparse, using="sparse") if sparse is not None else None,
             limit=limit or 10000,
             with_payload=True,
         )
@@ -724,8 +726,8 @@ class Collection(CollectionInfo, Generic[TModel]):
         limit: int | None = None,
         enable_two_pass_fusion: bool = False,
         fusion_prelimit: int = 200,
-        fusion_dense_weight: float = 0.7,
-        fusion_sparse_weight: float = 0.3,
+        fusion_dense_weight: float | None = None,
+        fusion_sparse_weight: float | None = None,
         enable_rerank: bool = False,
         enable_diversity: bool = False,
     ) -> list[DataPoint[TModel]]:
@@ -738,6 +740,8 @@ class Collection(CollectionInfo, Generic[TModel]):
         Returns:
             list[DataPoint[TModel]]: Search results sorted by relevance
         """
+        fusion_dense_weight = fusion_dense_weight if fusion_dense_weight is not None else float(os.environ.get("FUSION_DENSE_WEIGHT", "0.7"))
+        fusion_sparse_weight = fusion_sparse_weight if fusion_sparse_weight is not None else float(os.environ.get("FUSION_SPARSE_WEIGHT", "0.3"))
         doc = Document(text=query, model=self.model, options={"cuda": True})
         if enable_two_pass_fusion:
             sparse = sparse_from_text(query)
